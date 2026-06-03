@@ -1,0 +1,64 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Primitive Definitions for Path Variable and String Hardening
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Validation Helper for Question
+    function isValidQuestion(data) {
+      return data.title is string && data.title.size() <= 300
+        && data.createdAt is timestamp
+        && data.isActive is bool
+        && data.categories is list
+        && data.categories.size() <= 15
+        && (data.categories.size() == 0 || (data.categories.size() > 0 && data.categories[0] is string));
+    }
+
+    // Validation Helper for Answer
+    function isValidAnswer(data) {
+      return data.text is string && data.text.size() <= 1000
+        && data.category is string && data.category.size() <= 100
+        && data.createdAt is timestamp
+        && data.userId is string && data.userId.size() <= 128;
+    }
+
+    match /questions/{questionId} {
+      allow get, list: if true;
+      allow create: if isSignedIn() && isValidId(questionId) && isValidQuestion(incoming()) && incoming().createdAt == request.time;
+      allow update: if isSignedIn() && isValidId(questionId) && isValidQuestion(incoming()) && incoming().createdAt == existing().createdAt;
+      allow delete: if isSignedIn() && isValidId(questionId);
+      
+      match /answers/{answerId} {
+        allow get, list: if true;
+        allow create: if isValidId(answerId) && isValidAnswer(incoming()) && incoming().createdAt == request.time;
+        allow update: if isValidId(answerId) && isValidAnswer(incoming());
+        allow delete: if true; // Allows presenter to reset and clear values
+      }
+    }
+
+    match /settings/{settingId} {
+      allow get: if true;
+      allow create, update: if isSignedIn() && isValidId(settingId);
+      allow delete: if isSignedIn() && isValidId(settingId);
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "AI輔助互動交流系統",
+  "description": "基於 Gemini 的 Slido 互動工作坊系統。支持講師自訂題目與多類別 AI 語意分類，學員提交審議時由 AI 即時分類並同步顯示統計圖表。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

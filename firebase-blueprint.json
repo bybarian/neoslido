@@ -1,0 +1,38 @@
+{
+  "entities": {
+    "Question": {
+      "title": "Question",
+      "description": "An interactive question created by the presenter/admin",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "description": "The question text/title" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
+        "isActive": { "type": "boolean", "description": "Whether this question is currently active" },
+        "categories": { "type": "array", "description": "List of user-defined category strings" }
+      },
+      "required": ["title", "createdAt", "isActive", "categories"]
+    },
+    "Answer": {
+      "title": "Answer",
+      "description": "An answer submitted by a participant",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string", "description": "The submitted text answer" },
+        "category": { "type": "string", "description": "The AI classified category" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Submission timestamp" },
+        "userId": { "type": "string", "description": "Anonymous user ID of the participant" }
+      },
+      "required": ["text", "category", "createdAt", "userId"]
+    }
+  },
+  "firestore": {
+    "/questions/{questionId}": {
+      "schema": "Question",
+      "description": "Interactive question documents"
+    },
+    "/questions/{questionId}/answers/{answerId}": {
+      "schema": "Answer",
+      "description": "Participant answers under a specific question"
+    }
+  }
+}
