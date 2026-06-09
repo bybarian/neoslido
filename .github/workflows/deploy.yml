@@ -1,0 +1,126 @@
+name: CI/CD Build & Deploy to Google Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+env:
+  # ==========================================
+  # 請修改下列設定，以符合您的 GCP 專案配置
+  # ==========================================
+  GCP_PROJECT_ID: 'ai-studio-applet-webapp-bc93d' # 您的 Google Cloud 專案 ID
+  GCP_REGION: 'asia-northeast1'                   # 部署的 Cloud Run 區域 (如 asia-northeast1)
+  GCP_SERVICE_NAME: 'ai-interactive-system'        # 您的 Cloud Run 服務名稱
+  IMAGE_NAME: 'ai-interactive-system'             # Docker 映像檔名稱
+
+jobs:
+  test-and-lint:
+    name: 🧪 測試與代碼檢查
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Build Test (編譯測試)
+        run: npm run build
+
+      - name: Run Typings Lint (代碼編譯檢查)
+        run: npm run lint
+
+  build-and-deploy:
+    name: 🚀 映像檔打包與 Cloud Run 部署
+    needs: test-and-lint
+    if: github.event_name == 'push' # 僅在合併/推送至主分支時進行實際部署
+    runs-on: ubuntu-latest
+    
+    # 設置 Workload Identity 權限（若使用推薦的 OIDC 認證）
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # ==============================================================
+      # 🔐 Google Cloud 認證階段
+      # 您可以選擇以下其中「一種」認證方式：
+      #
+      # 【方式 A：推薦 - 使用 OIDC Workload Identity (無密鑰驗證)】
+      #  1. 請在 GCP 中設定身份池並設定 Provider：`google-github-actions/auth`
+      #  2. 啟用下方「認證 A」步驟並填入 `workload_identity_provider`
+      #
+      # 【方式 B：傳統 - 使用 Service Account 密鑰 (簡單直接)】
+      #  1. 在專案中建立具有 "Cloud Run 管理員"、"Artifact Registry 寫入者" 與 "儲存庫讀取者" 角色服務帳號。
+      #  2. 產生 JSON 密鑰並將其內容貼入 GitHub Repository Secrets -> 命名作 `GCP_SA_KEY`。
+      #  3. 啟用下方「認證 B」步驟。
+      # ==============================================================
+
+      # [認證方式 A]：Workload Identity OIDC (預設註解，需要時取消註解即可)
+      # - name: Google Auth (Workload Identity)
+      #   uses: google-github-actions/auth@v2
+      #   with:
+      #     workload_identity_provider: 'projects/YOUR_PROJECT_NUMBER/locations/global/workloadIdentityPools/YOUR_POOL/providers/YOUR_PROVIDER'
+      #     service_account: 'YOUR_SERVICE_ACCOUNT@YOUR_PROJECT_ID.iam.gserviceaccount.com'
+
+      # [認證方式 B]：Service Account JSON Key (如果已有 key，請填入 secrets)
+      - name: Google Auth (Service Account Key)
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      # 啟用 GCP 命令列工具和認證資訊
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # 設定 Docker 架構，準備將映像檔 push 至 Google GCR (或 Artifact Registry)
+      - name: Configure Docker wrapper for GCR
+        run: |
+          gcloud auth configure-docker --quiet
+
+      # 本地編譯多平台映像檔機制 (選配，預設提升編譯效能)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ==============================================================
+      # 📦 編譯並推動 Docker 映像檔
+      # ==============================================================
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: gcr.io/${{ env.GCP_PROJECT_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ==============================================================
+      # 🚢 部署至 Google Cloud Run
+      # ==============================================================
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.GCP_SERVICE_NAME }}
+          region: ${{ env.GCP_REGION }}
+          image: gcr.io/${{ env.GCP_PROJECT_ID }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          # 允許外部不具備身分驗證者存取 (依需求更改，一般為公開論壇工作坊)
+          flags: '--allow-unauthenticated'
+          # 設定環境變數
+          env_vars: |
+            NODE_ENV=production
+            GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
