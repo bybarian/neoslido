@@ -53,6 +53,11 @@ jobs:
       contents: 'read'
       id-token: 'write'
 
+    env:
+      GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -62,25 +67,25 @@ jobs:
       # ==============================================================
       - name: 🔍 檢查 Google Cloud 驗證金鑰是否配置 (Verify Env Secrets)
         run: |
-          if [ -z "${{ secrets.GCP_SA_KEY }}" ] && [ -z "${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}" ]; then
+          if [ -z "$GCP_SA_KEY" ] && [ -z "$GCP_WORKLOAD_IDENTITY_PROVIDER" ]; then
             echo "::error::❌ 部署終止：未偵測到任何 Google Cloud 認證資訊！請在 GitHub Repository 設置 [Settings] -> [Secrets and variables] -> [Actions]，新增名為 [GCP_SA_KEY] 的 Secret (填入 Service Account JSON 金鑰內容)；或設定 OIDC [GCP_WORKLOAD_IDENTITY_PROVIDER]。"
             exit 1
           fi
 
       # [認證方式 A]：OIDC Workload Identity (當 GCP_WORKLOAD_IDENTITY_PROVIDER 存在時執行)
       - name: Google Auth (Workload Identity)
-        if: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != '' }}
+        if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: '${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}'
-          service_account: '${{ secrets.GCP_SERVICE_ACCOUNT }}'
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
 
       # [認證方式 B]：Service Account JSON Key (當 GCP_SA_KEY 存在時執行)
       - name: Google Auth (Service Account Key)
-        if: ${{ secrets.GCP_SA_KEY != '' }}
+        if: env.GCP_SA_KEY != ''
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+          credentials_json: ${{ env.GCP_SA_KEY }}
 
       # 啟用 GCP 命令列工具和認證資訊
       - name: Set up Cloud SDK
