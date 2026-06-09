@@ -45,11 +45,7 @@ jobs:
   build-and-deploy:
     name: 🚀 映像檔打包與 Cloud Run 部署
     needs: test-and-lint
-    # 僅在合併/推送至主分支，且有設定 GCP 部署金鑰（或 OIDC）時才執行實際部署
-    # 若無設定 GCP 金鑰，此工作將安全跳過，不會報錯或中斷
-    if: |
-      github.event_name == 'push' &&
-      (secrets.GCP_SA_KEY != '' || secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != '')
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     
     # 設置 Workload Identity 權限（若使用推薦的 OIDC 認證）
