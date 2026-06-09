@@ -62,38 +62,75 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # ==============================================================
+      # 🔐 Google Cloud 認證與先期安全檢查 (Graceful Validation Check)
+      # ==============================================================
+      - name: 🔍 檢查 Google Cloud 驗證金鑰是否正確配置
+        id: pre_check
+        run: |
+          GCP_KEYS_EXIST=true
+          if [ -z "${{ secrets.GCP_SA_KEY || vars.GCP_SA_KEY }}" ] && [ -z "${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER || vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}" ]; then
+            echo "=========================================================================="
+            echo "💡 提示：未偵測到 Google Cloud 部署金鑰！"
+            echo "如果您只想測試代碼與編譯，不需部署，此工作會自動標記為【成功跳過】。"
+            echo "若要實行 Cloud Run 部署，請至 GitHub 專案：[Settings] -> [Secrets and variables] -> [Actions]"
+            echo "新增名叫 [GCP_SA_KEY] 的 Secret，並貼上 Google Cloud 服務帳號的完整 JSON 金鑰內容。"
+            echo "=========================================================================="
+            GCP_KEYS_EXIST=false
+          fi
+          
+          # 檢查金鑰是否是不明字元或格式不合
+          if [ ! -z "${{ secrets.GCP_SA_KEY || vars.GCP_SA_KEY }}" ]; then
+            FIRST_CHAR=$(echo -n "${{ secrets.GCP_SA_KEY || vars.GCP_SA_KEY }}" | tr -d '[:space:]' | cut -c1)
+            if [ "$FIRST_CHAR" != "{" ]; then
+              echo "=========================================================================="
+              echo "❌ 警告：[GCP_SA_KEY] 格式似乎不正確！"
+              echo "它不像是合格的 Google Cloud 服務帳號 JSON 配置（合格 JSON 應由 '{' 開頭）。"
+              echo "您可能不小心貼成了單純的 API Key (如 AIzaSy...)，或者在複製時不小心損毀了字元。"
+              echo "本步驟將暫時【安全跳過】實際部署，請前往 GitHub Secrets 修正為真實 Service Account JSON 金鑰。"
+              echo "=========================================================================="
+              GCP_KEYS_EXIST=false
+            fi
+          fi
+          
+          echo "gcp_keys_exist=$GCP_KEYS_EXIST" >> $GITHUB_OUTPUT
+
       # [認證方式 A]：OIDC Workload Identity (當 GCP_WORKLOAD_IDENTITY_PROVIDER 存在時執行)
       - name: Google Auth (Workload Identity)
-        if: env.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+        if: steps.pre_check.outputs.gcp_keys_exist == 'true' && env.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER || vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT || vars.GCP_SERVICE_ACCOUNT }}
 
-      # [認證方式 B]：Service Account JSON Key (當 GCP_SA_KEY 存在時執行)
+      # [認證方式 B]：Service Account JSON Key (當 GCP_SA_KEY 存在且正確時執行)
       - name: Google Auth (Service Account Key)
-        if: env.GCP_SA_KEY != ''
+        if: steps.pre_check.outputs.gcp_keys_exist == 'true' && env.GCP_SA_KEY != ''
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY || vars.GCP_SA_KEY }}
 
       # 啟用 GCP 命令列工具和認證資訊
       - name: Set up Cloud SDK
+        if: steps.pre_check.outputs.gcp_keys_exist == 'true'
         uses: google-github-actions/setup-gcloud@v2
 
       # 設定 Docker 架構，準備將映像檔 push 至 Google GCR (或 Artifact Registry)
       - name: Configure Docker wrapper for GCR
+        if: steps.pre_check.outputs.gcp_keys_exist == 'true'
         run: |
           gcloud auth configure-docker --quiet
 
       # 本地編譯多平台映像檔機制 (選配，預設提升編譯效能)
       - name: Set up Docker Buildx
+        if: steps.pre_check.outputs.gcp_keys_exist == 'true'
         uses: docker/setup-buildx-action@v3
 
       # ==============================================================
       # 📦 編譯並推動 Docker 映像檔
       # ==============================================================
       - name: Build and Push Docker Image
+        if: steps.pre_check.outputs.gcp_keys_exist == 'true'
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -106,6 +143,7 @@ jobs:
       # 🚢 部署至 Google Cloud Run
       # ==============================================================
       - name: Deploy to Cloud Run
+        if: steps.pre_check.outputs.gcp_keys_exist == 'true'
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: ${{ env.GCP_SERVICE_NAME }}
