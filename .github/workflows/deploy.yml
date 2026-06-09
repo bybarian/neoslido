@@ -45,7 +45,11 @@ jobs:
   build-and-deploy:
     name: 🚀 映像檔打包與 Cloud Run 部署
     needs: test-and-lint
-    if: github.event_name == 'push' # 僅在合併/推送至主分支時進行實際部署
+    # 僅在合併/推送至主分支，且有設定 GCP 部署金鑰（或 OIDC）時才執行實際部署
+    # 若無設定 GCP 金鑰，此工作將安全跳過，不會報錯或中斷
+    if: |
+      github.event_name == 'push' &&
+      (secrets.GCP_SA_KEY != '' || secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != '')
     runs-on: ubuntu-latest
     
     # 設置 Workload Identity 權限（若使用推薦的 OIDC 認證）
@@ -61,16 +65,6 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-
-      # ==============================================================
-      # 🔐 Google Cloud 認證與先期檢查
-      # ==============================================================
-      - name: 🔍 檢查 Google Cloud 驗證金鑰是否配置 (Verify Env Secrets)
-        run: |
-          if [ -z "$GCP_SA_KEY" ] && [ -z "$GCP_WORKLOAD_IDENTITY_PROVIDER" ]; then
-            echo "::error::❌ 部署終止：未偵測到任何 Google Cloud 認證資訊！請在 GitHub Repository 設置 [Settings] -> [Secrets and variables] -> [Actions]，新增名為 [GCP_SA_KEY] 的 Secret (填入 Service Account JSON 金鑰內容)；或設定 OIDC [GCP_WORKLOAD_IDENTITY_PROVIDER]。"
-            exit 1
-          fi
 
       # [認證方式 A]：OIDC Workload Identity (當 GCP_WORKLOAD_IDENTITY_PROVIDER 存在時執行)
       - name: Google Auth (Workload Identity)
