@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { GoogleGenAI } from "@google/genai";
 import { 
   Plus, Trash2, Play, CircleAlert, ToggleLeft, ToggleRight, Sparkles, 
   BarChart3, RefreshCw, Layers, Clipboard, Users, LogIn, ChevronRight, Check,
@@ -37,6 +38,9 @@ export default function AdminPanel({ role, setRole, isolatedMode }: AdminPanelPr
   
   const [showSettingsForm, setShowSettingsForm] = useState(false);
   const [joinUrl, setJoinUrl] = useState("");
+  const [geminiApiKey, setGeminiApiKey] = useState<string>(() => {
+    return localStorage.getItem("cbme_gemini_api_key") || (import.meta.env.VITE_GEMINI_API_KEY as string) || "";
+  });
 
   // Admin lock states
   const [isAdminUnlocked, setIsAdminUnlocked] = useState<boolean>(() => {
@@ -262,24 +266,90 @@ export default function AdminPanel({ role, setRole, isolatedMode }: AdminPanelPr
     setAnalyzingBatch(true);
     showMessage(`🤖 啟動 Gemini 一鍵 AI 智慧分析：正在歸納配對現場 ${pendingItems.length} 筆回覆...`, "success");
 
-    try {
-      const response = await fetch("/api/analyze-batch", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          items: pendingItems.map(item => ({ id: item.id, text: item.text })),
-          categories: categories
-        })
-      });
+    let results: { id: string; category: string }[] = [];
+    let methodUsed = "API Server";
 
-      if (!response.ok) {
-        throw new Error("一鍵 AI 智慧分析失敗，請確認伺服器連線");
+    try {
+      const keyToUse = geminiApiKey || (import.meta.env.VITE_GEMINI_API_KEY as string);
+
+      if (keyToUse) {
+        methodUsed = "Client Gemini Direct (瀏覽器端直接解析)";
+        console.log("Using browser-side Gemini client for prediction...");
+        const ai = new GoogleGenAI({ apiKey: keyToUse });
+        
+        const prompt = `You are an expert workshop categorizer.
+Given those participant feedback responses:
+${JSON.stringify(pendingItems.map(it => ({ id: it.id, text: it.text })))}
+
+And the allowed categories list:
+${JSON.stringify(categories)}
+
+Classify each response into exactly one of the allowed categories. If any response does not fit any specified category, assign it as "Other".`;
+
+        const response = await ai.models.generateContent({
+          model: "gemini-3.5-flash",
+          contents: prompt,
+          config: {
+            systemInstruction: "Classify multiple feedback items into exact categories. Be objective and precise, returning a valid JSON array format as specified.",
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: "OBJECT",
+              properties: {
+                results: {
+                  type: "ARRAY",
+                  items: {
+                    type: "OBJECT",
+                    properties: {
+                      id: { type: "STRING" },
+                      category: { 
+                        type: "STRING", 
+                        description: "The classified category. Must be an exact match to one of the allowed categories or 'Other'." 
+                      }
+                    },
+                    required: ["id", "category"]
+                  }
+                }
+              },
+              required: ["results"]
+            }
+          }
+        });
+
+        const responseText = response.text || "";
+        try {
+          const parsed = JSON.parse(responseText.trim());
+          results = parsed.results || [];
+        } catch (err) {
+          console.error("Failed to parse browser Gemini batch classification response:", responseText, err);
+          results = pendingItems.map(it => {
+            const matched = categories.find(c => responseText.toLowerCase().includes(c.toLowerCase()));
+            return { id: it.id, category: matched || "Other" };
+          });
+        }
+      } else {
+        // Fallback to Server-Side API call
+        const response = await fetch("/api/analyze-batch", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            items: pendingItems.map(item => ({ id: item.id, text: item.text })),
+            categories: categories
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error("一鍵 AI 智慧分析失敗，請檢查伺服器連線，或在「自訂大會看版與客製 Banner」設定中點選設定您的 瀏覽器端備用 Gemini Key。");
+        }
+
+        const data = await response.json();
+        results = data.results || [];
       }
 
-      const data = await response.json();
-      const results = data.results || [];
+      if (results.length === 0) {
+        throw new Error("無效的歸類結果，請重試");
+      }
 
       // Update Firestore documents in parallel or batch
       const updatePromises = results.map((res: { id: string; category: string }) => {
@@ -289,7 +359,7 @@ export default function AdminPanel({ role, setRole, isolatedMode }: AdminPanelPr
       });
 
       await Promise.all(updatePromises);
-      showMessage(`🎉 一鍵智慧分類完成！已成功將 ${results.length} 筆回應對齊大會核心指標。`, "success");
+      showMessage(`🎉 一鍵智慧分類完成 (${methodUsed})！已成功將 ${results.length} 筆回應對齊大會核心指標。`, "success");
     } catch (error) {
       console.error("Batch classification failed:", error);
       showMessage(error instanceof Error ? error.message : "智慧歸納失敗，請確認網路與權限。", "error");
@@ -1912,6 +1982,30 @@ export default function AdminPanel({ role, setRole, isolatedMode }: AdminPanelPr
                     </div>
                   </div>
                 )}
+
+                {/* Direct Browser Gemini API Key Configurator */}
+                <div className="space-y-2 pt-3.5 border-t border-slate-200">
+                  <span className="text-[10px] font-extrabold text-indigo-600 uppercase tracking-wider block">🧪 智慧歸納 AI 服務設定：</span>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-600 flex items-center gap-1.5">
+                      <Sparkles className="h-3.5 w-3.5 text-indigo-500 animate-pulse" />
+                      Gemini API Key (瀏覽器端直接解析金鑰，選填)
+                    </label>
+                    <input
+                      type="password"
+                      value={geminiApiKey}
+                      onChange={(e) => {
+                        setGeminiApiKey(e.target.value);
+                        localStorage.setItem("cbme_gemini_api_key", e.target.value);
+                      }}
+                      placeholder="AIzaSy... (若使用 GitHub Pages 靜態託管，填入此金鑰可直接解析)"
+                      className="w-full text-xs rounded-md border border-slate-300 p-2 focus:ring-1 focus:ring-indigo-500 bg-white focus:outline-hidden"
+                    />
+                    <p className="text-[10px] text-slate-400 leading-normal">
+                      ℹ️ 當網頁架設於 GitHub Pages 靜態網站時，後端的 API 會無法運行。此時您可以在此填入您個人的 <b>Gemini API KEY</b>。系統會將此金鑰安全地存放在您本地瀏覽器快取中（儲存於您的本機不經由任何第三方伺服器），使瀏覽器能夠直接對 Google Gemini 發出回應分析，進而完成一鍵智慧歸類。
+                    </p>
+                  </div>
+                </div>
 
                 <div className="pt-2 flex justify-end gap-2.5">
                   <button
