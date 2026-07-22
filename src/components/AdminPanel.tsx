@@ -201,8 +201,13 @@ export default function AdminPanel({ role, setRole, isolatedMode }: AdminPanelPr
 
   // Generate real-time Participant URL with query param
   useEffect(() => {
-    const origin = window.location.origin || "https://ai.studio/build";
-    setJoinUrl(`${origin}?role=participant`);
+    if (typeof window !== "undefined") {
+      const origin = window.location.origin;
+      const path = window.location.pathname.replace(/\/index\.html$/, '').replace(/\/$/, '');
+      setJoinUrl(`${origin}${path}/?role=participant`);
+    } else {
+      setJoinUrl("https://bybarian.github.io/neoslido/?role=participant");
+    }
   }, []);
 
   // Monitor dynamic workshop header settings in Firestore (sync real-time)

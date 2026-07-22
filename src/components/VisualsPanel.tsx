@@ -63,8 +63,13 @@ export default function VisualsPanel({
   }, [activeQuestion?.id]);
 
   useEffect(() => {
-    const origin = typeof window !== "undefined" ? window.location.origin : "https://ai.studio/build";
-    setJoinUrl(`${origin}?role=participant`);
+    if (typeof window !== "undefined") {
+      const origin = window.location.origin;
+      const path = window.location.pathname.replace(/\/index\.html$/, '').replace(/\/$/, '');
+      setJoinUrl(`${origin}${path}/?role=participant`);
+    } else {
+      setJoinUrl("https://bybarian.github.io/neoslido/?role=participant");
+    }
   }, []);
 
   // Dynamic header settings from Firestore (to sync banner / meeting meta)
