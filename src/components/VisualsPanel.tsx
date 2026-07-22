@@ -834,7 +834,7 @@ export default function VisualsPanel({
                             
                             <div className="flex items-center justify-between gap-4 mt-1 border-t border-slate-200/50 pt-2 flex-wrap">
                               <span className="text-[9px] text-slate-400 font-semibold">
-                                參與者：{answer.userName || "匿名"} • {answer.createdAt ? new Date(answer.createdAt.seconds * 1000).toLocaleTimeString("zh-TW") : "剛送出"}
+                                # 匿名參與者 • {answer.createdAt ? new Date(answer.createdAt.seconds * 1000).toLocaleTimeString("zh-TW") : "剛送出"}
                               </span>
                               
                               <span 

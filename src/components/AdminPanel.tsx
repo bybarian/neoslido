@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { GoogleGenAI } from "@google/genai";
+import * as XLSX from "xlsx";
 import { 
   Plus, Trash2, Play, CircleAlert, ToggleLeft, ToggleRight, Sparkles, 
   BarChart3, RefreshCw, Layers, Clipboard, Users, LogIn, ChevronRight, Check,
   QrCode, Settings, Settings2, Copy, Lock, Unlock, Monitor, Edit3, Image,
-  Eye, EyeOff, Vote, KeyRound
+  Eye, EyeOff, Vote, KeyRound, FileSpreadsheet, Download
 } from "lucide-react";
 import { 
   collection, query, onSnapshot, doc, setDoc, addDoc, getDocs, deleteDoc, 
@@ -267,6 +268,94 @@ export default function AdminPanel({ role, setRole, isolatedMode }: AdminPanelPr
     setTimeout(() => setCopied(false), 2000);
   };
 
+  // 📊 Excel 匯出功能 (Export to Excel)
+  const handleExportExcel = (questionScope?: Question) => {
+    try {
+      const rows: any[] = [];
+      const targetQuestions = questionScope ? [questionScope] : questions;
+
+      if (targetQuestions.length === 0) {
+        showMessage("尚無任何題目可供匯出！", "error");
+        return;
+      }
+
+      targetQuestions.forEach((q, index) => {
+        const qAnswers = answersMap[q.id] || [];
+        if (qAnswers.length === 0) {
+          rows.push({
+            "題號": `Q${index + 1}`,
+            "題目 ID": q.id,
+            "題目內容": q.title,
+            "題目類型": q.type === "poll" ? "單選投票" : "開放字雲",
+            "答覆 / 投票選項": "(尚無答覆)",
+            "AI歸類 / 選擇類別": "-",
+            "填答者姓名": "-",
+            "職級 / 職稱": "-",
+            "醫院 / 單位": "-",
+            "填答時間": "-",
+            "用戶識別碼 (UID)": "-"
+          });
+        } else {
+          qAnswers.forEach((ans) => {
+            let timeStr = "";
+            if (ans.createdAt) {
+              if (typeof ans.createdAt.toDate === "function") {
+                timeStr = ans.createdAt.toDate().toLocaleString("zh-TW");
+              } else if (ans.createdAt.seconds) {
+                timeStr = new Date(ans.createdAt.seconds * 1000).toLocaleString("zh-TW");
+              }
+            }
+            rows.push({
+              "題號": `Q${index + 1}`,
+              "題目 ID": q.id,
+              "題目內容": q.title,
+              "題目類型": q.type === "poll" ? "單選投票" : "開放字雲",
+              "答覆 / 投票選項": ans.text,
+              "AI歸類 / 選擇類別": ans.category || "Pending",
+              "填答者姓名": ans.userName || "匿名",
+              "職級 / 職稱": ans.userTitle || "未填",
+              "醫院 / 單位": ans.userHospital || "未填",
+              "填答時間": timeStr || "剛送出",
+              "用戶識別碼 (UID)": ans.userId || "-"
+            });
+          });
+        }
+      });
+
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+
+      // Set optimal column widths
+      worksheet["!cols"] = [
+        { wch: 8 },  // 題號
+        { wch: 18 }, // 題目 ID
+        { wch: 38 }, // 題目內容
+        { wch: 12 }, // 題目類型
+        { wch: 40 }, // 答覆 / 投票選項
+        { wch: 20 }, // AI歸類 / 選擇類別
+        { wch: 16 }, // 填答者姓名
+        { wch: 18 }, // 職級 / 職稱
+        { wch: 22 }, // 醫院 / 單位
+        { wch: 22 }, // 填答時間
+        { wch: 24 }  // 用戶識別碼
+      ];
+
+      const workbook = XLSX.utils.book_new();
+      const sheetName = questionScope ? `單題_Q${questionScope.title.slice(0, 10)}` : "全場互動數據報表";
+      XLSX.utils.book_append_sheet(workbook, worksheet, sheetName.replace(/[\\/?*:[\]]/g, "_"));
+
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const fileName = questionScope 
+        ? `CBME_Question_Answers_${dateStr}.xlsx` 
+        : `CBME_All_Questions_Answers_${dateStr}.xlsx`;
+
+      XLSX.writeFile(workbook, fileName);
+      showMessage("✅ 已成功匯出 Excel 互動答覆報表檔！", "success");
+    } catch (err) {
+      console.error("Excel export error:", err);
+      showMessage("❌ 匯出 Excel 時發生錯誤，請稍後重試", "error");
+    }
+  };
+
   // One-click AI classification generator for all pending answers (一鍵智慧歸納分析功能)
   const handleBatchAnalyze = async (questionId: string, categories: string[]) => {
     const answers = answersMap[questionId] || [];
@@ -493,7 +582,9 @@ Classify each response into exactly one of the allowed categories. If any respon
             category: data.category || "Other",
             createdAt: data.createdAt,
             userId: data.userId || "",
-            userName: data.userName || "匿名"
+            userName: data.userName || "匿名",
+            userTitle: data.userTitle || "",
+            userHospital: data.userHospital || ""
           });
         });
         
@@ -1458,9 +1549,21 @@ Classify each response into exactly one of the allowed categories. If any respon
 
           {/* List of current questions */}
           <div className="space-y-2 pt-2">
-            <span className="text-xs font-black text-slate-500 uppercase tracking-wider block">
-              互動題目與歸納歷程庫 ({questions.length})
-            </span>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <span className="text-xs font-black text-slate-500 uppercase tracking-wider block">
+                互動題目與歸納歷程庫 ({questions.length})
+              </span>
+
+              <button
+                type="button"
+                onClick={() => handleExportExcel()}
+                className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-[11px] rounded-lg transition shadow-xs flex items-center gap-1.5 cursor-pointer"
+                title="匯出全場包含姓名、職級、醫院及所有回覆內容的 Excel 檔案"
+              >
+                <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-200" />
+                📊 匯出全場所有題目 Excel 報表
+              </button>
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[350px] overflow-y-auto pr-1">
               {questions.map((q) => {
@@ -1863,7 +1966,7 @@ Classify each response into exactly one of the allowed categories. If any respon
 
               {/* REAL-TIME ANSWERS LIST */}
               <div className="mt-8 space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <h3 className="font-display font-bold text-slate-700 text-sm flex items-center gap-1.5 min-w-0">
                     {selectedTerm ? (
                       <span className="text-cyan-900 font-extrabold bg-cyan-50 border border-cyan-150 px-2.5 py-1 rounded-md flex items-center gap-1 text-[10px] truncate animate-fade-in">
@@ -1874,18 +1977,30 @@ Classify each response into exactly one of the allowed categories. If any respon
                     )}
                   </h3>
                   
-                  {selectedTerm ? (
+                  <div className="flex items-center gap-2 shrink-0">
                     <button
-                      onClick={() => setSelectedTerm(null)}
-                      className="text-[10px] bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 font-black px-2.5 py-1 rounded-full cursor-pointer select-none transition shrink-0"
+                      type="button"
+                      onClick={() => handleExportExcel(focusedQuestion)}
+                      className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-extrabold text-[10px] rounded-lg transition shadow-xs flex items-center gap-1 cursor-pointer"
+                      title="匯出本題包含姓名、職級、醫院等詳細填答資料的 Excel 檔案"
                     >
-                      ✕ 清除篩選
+                      <Download className="h-3 w-3 text-emerald-600" />
+                      📥 匯出本題 Excel
                     </button>
-                  ) : (
-                    <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-widest animate-pulse shrink-0">
-                      ● 連線中 Live
-                    </span>
-                  )}
+
+                    {selectedTerm ? (
+                      <button
+                        onClick={() => setSelectedTerm(null)}
+                        className="text-[10px] bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 font-black px-2.5 py-1 rounded-full cursor-pointer select-none transition shrink-0"
+                      >
+                        ✕ 清除篩選
+                      </button>
+                    ) : (
+                      <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-widest animate-pulse shrink-0">
+                        ● 連線中 Live
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="max-h-85 overflow-y-auto space-y-2.5 pr-2">
@@ -1909,9 +2024,16 @@ Classify each response into exactly one of the allowed categories. If any respon
                               <p className="text-slate-800 font-medium leading-relaxed">
                                 "{answer.text}"
                               </p>
-                              <span className="text-[10px] text-slate-400 block font-mono">
-                                # {answer.userName || "匿名參與者"} • {answer.createdAt ? new Date(answer.createdAt.seconds * 1000).toLocaleTimeString("zh-TW") : "剛送出"}
-                              </span>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[10px] text-indigo-900 font-extrabold bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-md inline-flex items-center gap-1">
+                                  👤 {answer.userName || "匿名參與者"}
+                                  {answer.userTitle && <span className="text-indigo-700/80 font-normal">({answer.userTitle})</span>}
+                                  {answer.userHospital && <span className="text-slate-500 font-medium">@ {answer.userHospital}</span>}
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  • {answer.createdAt ? new Date(answer.createdAt.seconds * 1000).toLocaleTimeString("zh-TW") : "剛送出"}
+                                </span>
+                              </div>
                             </div>
 
                             <div className="shrink-0 flex items-center gap-2">

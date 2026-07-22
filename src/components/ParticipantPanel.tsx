@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { 
   Send, CheckCircle2, AlertCircle, 
-  RefreshCw, Vote, BarChart, History, ArrowRight, Trash2, Lock, Unlock, Sparkles, MessageSquare, User
+  RefreshCw, Vote, BarChart, History, ArrowRight, Trash2, Lock, Unlock, Sparkles, MessageSquare, User, Briefcase, Building2
 } from "lucide-react";
 import { 
   collection, query, where, onSnapshot, doc, setDoc, serverTimestamp, deleteDoc
@@ -18,11 +18,25 @@ export default function ParticipantPanel() {
   const [userName, setUserName] = useState(() => {
     return localStorage.getItem("cbme_participant_name") || "";
   });
+  const [userTitle, setUserTitle] = useState(() => {
+    return localStorage.getItem("cbme_participant_title") || "";
+  });
+  const [userHospital, setUserHospital] = useState(() => {
+    return localStorage.getItem("cbme_participant_hospital") || "";
+  });
   const [loading, setLoading] = useState(false);
 
   const handleUserNameChange = (val: string) => {
     setUserName(val);
     localStorage.setItem("cbme_participant_name", val);
+  };
+  const handleUserTitleChange = (val: string) => {
+    setUserTitle(val);
+    localStorage.setItem("cbme_participant_title", val);
+  };
+  const handleUserHospitalChange = (val: string) => {
+    setUserHospital(val);
+    localStorage.setItem("cbme_participant_hospital", val);
   };
   const [successAnswer, setSuccessAnswer] = useState<{ text: string; category: string } | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -106,7 +120,9 @@ export default function ParticipantPanel() {
           category: data.category || "Other",
           createdAt: data.createdAt,
           userId: uId,
-          userName: data.userName || "匿名"
+          userName: data.userName || "匿名",
+          userTitle: data.userTitle || "",
+          userHospital: data.userHospital || ""
         });
       });
       setAnswers(qAnswers);
@@ -162,7 +178,9 @@ export default function ParticipantPanel() {
         category: activeQuestion.type === "poll" ? "Vote" : "Pending",
         createdAt: serverTimestamp(),
         userId: userId,
-        userName: userName.trim() || "匿名"
+        userName: userName.trim() || "匿名",
+        userTitle: userTitle.trim() || "",
+        userHospital: userHospital.trim() || ""
       });
 
       // Clear input & transition to presentation view
@@ -385,24 +403,69 @@ export default function ParticipantPanel() {
                       </span>
                     </div>
 
-                    {/* Participant Name Input Block */}
-                    <div className="p-3.5 bg-slate-50/90 rounded-xl border border-slate-200 space-y-1.5 shadow-2xs">
-                      <label className="text-xs font-extrabold text-slate-700 flex items-center justify-between">
-                        <span className="flex items-center gap-1.5">
+                    {/* Participant Profile Input Block (Name, Title, Hospital) */}
+                    <div className="p-3.5 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-3 shadow-2xs">
+                      <div className="flex items-center justify-between border-b border-indigo-100/80 pb-2">
+                        <span className="text-xs font-black text-indigo-950 flex items-center gap-1.5">
                           <User className="h-4 w-4 text-indigo-600 shrink-0" />
-                          填答者姓名 / 暱稱或單位（選填）：
+                          填答基本資料：
                         </span>
-                        <span className="text-[10px] text-slate-400 font-normal">留空則以「匿名」送出</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={userName}
-                        onChange={(e) => handleUserNameChange(e.target.value)}
-                        placeholder="例：王小明醫師 / 慈濟醫院 (亦可不填)"
-                        className="w-full text-xs rounded-lg border border-slate-200 p-2.5 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 placeholder:text-slate-400 font-medium"
-                        maxLength={30}
-                        disabled={loading}
-                      />
+                        <span className="text-[10px] text-indigo-700/80 font-semibold bg-indigo-100/70 px-2 py-0.5 rounded-md">
+                          🔒 大螢幕貼出維持匿名
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                        {/* 1. 姓名 */}
+                        <div>
+                          <label className="text-[11px] font-extrabold text-slate-700 block mb-1">
+                            姓名 / 暱稱：
+                          </label>
+                          <input
+                            type="text"
+                            value={userName}
+                            onChange={(e) => handleUserNameChange(e.target.value)}
+                            placeholder="例：王小明 (預設匿名)"
+                            className="w-full text-xs rounded-lg border border-slate-200 p-2 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 placeholder:text-slate-400 font-medium"
+                            maxLength={20}
+                            disabled={loading}
+                          />
+                        </div>
+
+                        {/* 2. 職級 */}
+                        <div>
+                          <label className="text-[11px] font-extrabold text-slate-700 block mb-1 flex items-center gap-1">
+                            <Briefcase className="h-3 w-3 text-slate-500" />
+                            職級 / 職稱：
+                          </label>
+                          <input
+                            type="text"
+                            value={userTitle}
+                            onChange={(e) => handleUserTitleChange(e.target.value)}
+                            placeholder="例：主治醫師 / 護理師 / PG"
+                            className="w-full text-xs rounded-lg border border-slate-200 p-2 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 placeholder:text-slate-400 font-medium"
+                            maxLength={25}
+                            disabled={loading}
+                          />
+                        </div>
+
+                        {/* 3. 醫院 / 單位 */}
+                        <div>
+                          <label className="text-[11px] font-extrabold text-slate-700 block mb-1 flex items-center gap-1">
+                            <Building2 className="h-3 w-3 text-slate-500" />
+                            醫院 / 單位：
+                          </label>
+                          <input
+                            type="text"
+                            value={userHospital}
+                            onChange={(e) => handleUserHospitalChange(e.target.value)}
+                            placeholder="例：花蓮慈濟 / 台大醫院"
+                            className="w-full text-xs rounded-lg border border-slate-200 p-2 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 placeholder:text-slate-400 font-medium"
+                            maxLength={30}
+                            disabled={loading}
+                          />
+                        </div>
+                      </div>
                     </div>
 
                     {/* ERROR STATE */}
@@ -572,8 +635,8 @@ export default function ParticipantPanel() {
                             <p className="text-slate-800 font-extrabold italic truncate">
                               "{sub.text}"
                             </p>
-                            <span className="text-[10px] text-slate-400 font-mono block">
-                              填答者：{sub.userName || "匿名"}
+                            <span className="text-[10px] text-slate-400 font-mono block truncate">
+                              填答者：{sub.userName || "匿名"}{sub.userTitle ? ` (${sub.userTitle})` : ""}{sub.userHospital ? ` @ ${sub.userHospital}` : ""}
                             </span>
                           </div>
                           <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded shrink-0">

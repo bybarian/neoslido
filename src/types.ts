@@ -16,6 +16,8 @@ export interface Answer {
   createdAt: any; // Firestore Timestamp style
   userId: string;
   userName?: string;
+  userTitle?: string;
+  userHospital?: string;
 }
 
 export interface CategorySummary {
