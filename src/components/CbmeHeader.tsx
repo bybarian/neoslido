@@ -42,12 +42,12 @@ export default function CbmeHeader() {
   if (settings.bannerType === 'image') {
     if (settings.bannerBgUrl) {
       return (
-        <header className="relative w-full border-b border-indigo-900 bg-indigo-950 overflow-hidden flex justify-center items-center">
+        <header className="relative w-full border-b border-indigo-900 bg-indigo-950 overflow-hidden flex justify-center items-center py-2 md:py-3 px-3">
           <img 
             src={settings.bannerBgUrl} 
             alt="Workshop Custom Banner" 
             referrerPolicy="no-referrer"
-            className="w-full h-auto max-h-[160px] md:max-h-[220px] object-cover mx-auto animate-fade-in"
+            className="w-full h-auto max-h-[160px] md:max-h-[220px] object-contain mx-auto animate-fade-in"
           />
         </header>
       );

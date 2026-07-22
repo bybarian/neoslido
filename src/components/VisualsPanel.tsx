@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { 
   Brain, Play, Sparkles, Maximize, Minimize, ArrowLeft, Activity, Phone, Monitor, Presentation, Users,
-  Lock, Unlock, KeyRound, Eye, EyeOff
+  Lock, Unlock, KeyRound, Eye, EyeOff, ChevronLeft, ChevronRight
 } from "lucide-react";
 import { 
   collection, query, onSnapshot, doc
@@ -25,6 +25,15 @@ export default function VisualsPanel({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [joinUrl, setJoinUrl] = useState("");
   const [selectedTerm, setSelectedTerm] = useState<string | null>(null);
+
+  const tabsRef = useRef<HTMLDivElement>(null);
+
+  const scrollTabs = (direction: "left" | "right") => {
+    if (tabsRef.current) {
+      const scrollAmount = direction === "left" ? -280 : 280;
+      tabsRef.current.scrollBy({ left: scrollAmount, behavior: "smooth" });
+    }
+  };
 
   // Speaker Lock for Big Screen Projection
   const [isUnlocked, setIsUnlocked] = useState(false);
@@ -350,14 +359,14 @@ export default function VisualsPanel({
       <div className="absolute top-0 right-0 h-96 w-96 bg-indigo-150/40 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute bottom-10 left-10 h-72 w-72 bg-teal-100/30 rounded-full blur-2xl pointer-events-none" />
 
-      {/* HEADER SECTION - Beautiful Indigo and Teal */}
+      {/* HEADER SECTION - Beautiful Indigo and Teal Banner */}
       {bannerType === "image" && bannerBgUrl ? (
-        <header className="w-full border-b border-indigo-950 bg-indigo-950 overflow-hidden flex justify-center items-center h-20 md:h-24 shadow-md z-10">
+        <header className="w-full border-b border-indigo-950 bg-indigo-950 overflow-hidden flex justify-center items-center py-2 md:py-3 px-3 shadow-md z-10 min-h-[70px]">
           <img 
             src={bannerBgUrl} 
             alt="大會專屬客製 Banner" 
             referrerPolicy="no-referrer"
-            className="w-full h-full object-cover opacity-90"
+            className="w-full h-auto max-h-[160px] md:max-h-[220px] object-contain mx-auto transition-all"
           />
         </header>
       ) : (
@@ -438,43 +447,66 @@ export default function VisualsPanel({
               </span>
             </div>
 
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-              {sortedQuestions.map((q, idx) => {
-                const isSelected = q.id === focusedQuestion?.id;
-                const isPoll = q.type === "poll";
-                return (
-                  <button
-                    key={q.id}
-                    type="button"
-                    onClick={() => setActiveQuestion(q)}
-                    className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2.5 shrink-0 cursor-pointer select-none border ${
-                      isSelected
-                        ? "bg-indigo-950 text-white border-indigo-900 shadow-md ring-2 ring-teal-400"
-                        : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 hover:border-slate-300"
-                    }`}
-                  >
-                    <span className={`text-[10px] font-mono font-black px-2 py-0.5 rounded-md ${
-                      isSelected 
-                        ? "bg-teal-400 text-indigo-950 shadow-2xs" 
-                        : "bg-slate-200/80 text-slate-600"
-                    }`}>
-                      Q{idx + 1}
-                    </span>
+            <div className="relative flex items-center gap-1.5 pt-1">
+              <button
+                type="button"
+                onClick={() => scrollTabs("left")}
+                className="shrink-0 p-2 rounded-xl bg-slate-100 hover:bg-indigo-900 hover:text-white text-slate-600 transition shadow-xs cursor-pointer z-10 border border-slate-200/90 active:scale-95 select-none"
+                title="向左滑動題目列表"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
 
-                    <span className="truncate max-w-[160px] md:max-w-[240px]">
-                      {q.title}
-                    </span>
+              <div 
+                ref={tabsRef}
+                className="flex items-center gap-2 overflow-x-auto pb-1 scroll-smooth scrollbar-none flex-1 py-1"
+              >
+                {sortedQuestions.map((q, idx) => {
+                  const isSelected = q.id === focusedQuestion?.id;
+                  const isPoll = q.type === "poll";
+                  return (
+                    <button
+                      key={q.id}
+                      type="button"
+                      onClick={() => setActiveQuestion(q)}
+                      className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2.5 shrink-0 cursor-pointer select-none border ${
+                        isSelected
+                          ? "bg-indigo-950 text-white border-indigo-900 shadow-md ring-2 ring-teal-400"
+                          : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 hover:border-slate-300"
+                      }`}
+                    >
+                      <span className={`text-[10px] font-mono font-black px-2 py-0.5 rounded-md ${
+                        isSelected 
+                          ? "bg-teal-400 text-indigo-950 shadow-2xs" 
+                          : "bg-slate-200/80 text-slate-600"
+                      }`}>
+                        Q{idx + 1}
+                      </span>
 
-                    <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
-                      isPoll 
-                        ? (isSelected ? "bg-emerald-400 text-emerald-950" : "bg-emerald-100 text-emerald-800 border border-emerald-300")
-                        : (isSelected ? "bg-indigo-700 text-indigo-100" : "bg-indigo-100 text-indigo-800 border border-indigo-200")
-                    }`}>
-                      {isPoll ? "📊 投票" : "☁️ 字雲"}
-                    </span>
-                  </button>
-                );
-              })}
+                      <span className="truncate max-w-[160px] md:max-w-[240px]">
+                        {q.title}
+                      </span>
+
+                      <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                        isPoll 
+                          ? (isSelected ? "bg-emerald-400 text-emerald-950" : "bg-emerald-100 text-emerald-800 border border-emerald-300")
+                          : (isSelected ? "bg-indigo-700 text-indigo-100" : "bg-indigo-100 text-indigo-800 border border-indigo-200")
+                      }`}>
+                        {isPoll ? "📊 投票" : "☁️ 字雲"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => scrollTabs("right")}
+                className="shrink-0 p-2 rounded-xl bg-slate-100 hover:bg-indigo-900 hover:text-white text-slate-600 transition shadow-xs cursor-pointer z-10 border border-slate-200/90 active:scale-95 select-none"
+                title="向右滑動題目列表"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
             </div>
           </div>
         )}

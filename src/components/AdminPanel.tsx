@@ -2056,7 +2056,7 @@ Classify each response into exactly one of the allowed categories. If any respon
                           src={bannerBgUrl} 
                           alt="Current Banner" 
                           referrerPolicy="no-referrer"
-                          className="max-h-20 w-full object-cover"
+                          className="max-h-24 w-full object-contain mx-auto bg-indigo-950 p-1 rounded"
                         />
                       </div>
                       <p className="text-[10px] text-emerald-700 font-extrabold flex items-center gap-1">
