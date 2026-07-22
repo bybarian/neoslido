@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import { 
   Brain, Play, Sparkles, Maximize, Minimize, ArrowLeft, Activity, Phone, Monitor, Presentation, Users,
-  Lock, Unlock, KeyRound, Eye, EyeOff, ChevronLeft, ChevronRight
+  Lock, Unlock, KeyRound, Eye, EyeOff, ChevronLeft, ChevronRight, Heart, List, Cloud, ListFilter, SortDesc
 } from "lucide-react";
 import { 
-  collection, query, onSnapshot, doc
+  collection, query, onSnapshot, doc, updateDoc, increment
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { Question, Answer } from "../types";
@@ -21,7 +21,8 @@ export default function VisualsPanel({
   const [answersMap, setAnswersMap] = useState<{ [qId: string]: Answer[] }>({});
   const [activeQuestion, setActiveQuestion] = useState<Question | null>(null);
   const [dbActiveId, setDbActiveId] = useState<string | null>(null);
-  const [presentMode, setPresentMode] = useState<"chart" | "wordcloud">("chart");
+  const [presentMode, setPresentMode] = useState<"list" | "wordcloud" | "chart">("list");
+  const [sortMode, setSortMode] = useState<"likes" | "latest">("likes");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [joinUrl, setJoinUrl] = useState("");
   const [selectedTerm, setSelectedTerm] = useState<string | null>(null);
@@ -127,6 +128,7 @@ export default function VisualsPanel({
           categories: data.categories || [],
           imageUrl: data.imageUrl || null,
           type: data.type || 'wordcloud',
+          displayMode: data.displayMode || 'list',
           options: data.options || []
         });
       });
@@ -153,6 +155,36 @@ export default function VisualsPanel({
     return () => unsubscribe();
   }, []);
 
+  // Auto-set presentMode when activeQuestion changes
+  useEffect(() => {
+    if (activeQuestion) {
+      if (activeQuestion.type === 'poll') {
+        setPresentMode("chart");
+      } else {
+        setPresentMode(activeQuestion.displayMode === 'wordcloud' ? "wordcloud" : "list");
+      }
+    }
+  }, [activeQuestion?.id]);
+
+  // Handle Like/Heart button toggle
+  const handleLikeAnswer = async (questionId: string, answerId: string) => {
+    try {
+      const key = `cbme_liked_${answerId}`;
+      const isLiked = localStorage.getItem(key) === "true";
+      const answerRef = doc(db, `questions/${questionId}/answers`, answerId);
+
+      if (isLiked) {
+        localStorage.removeItem(key);
+        await updateDoc(answerRef, { likes: increment(-1) });
+      } else {
+        localStorage.setItem(key, "true");
+        await updateDoc(answerRef, { likes: increment(1) });
+      }
+    } catch (err) {
+      console.error("Failed to update like:", err);
+    }
+  };
+
   // Subscribe to answer stream of all loaded questions
   useEffect(() => {
     if (questions.length === 0) return;
@@ -167,7 +199,9 @@ export default function VisualsPanel({
             category: data.category || "Other",
             createdAt: data.createdAt,
             userId: data.userId || "anonymous",
-            userName: data.userName || "匿名"
+            userName: data.userName || "匿名",
+            likes: data.likes || 0,
+            likedBy: data.likedBy || []
           });
         });
         // Sort answers chronology descending
@@ -562,28 +596,41 @@ export default function VisualsPanel({
                   )}
                 </div>
                 <div className="shrink-0 flex items-center gap-2">
-                  <div className="bg-slate-950 p-1.5 rounded-full border border-slate-800 text-xs flex items-center shadow-lg">
+                  <div className="bg-slate-950 p-1.5 rounded-full border border-slate-800 text-xs flex items-center shadow-lg gap-1">
                     <button
                       type="button"
-                      onClick={() => setPresentMode("chart")}
-                      className={`px-4 py-2 rounded-full font-bold transition cursor-pointer flex items-center gap-1.5 select-none ${
-                        presentMode === "chart"
-                          ? "bg-slate-800 text-white shadow-md font-extrabold"
+                      onClick={() => setPresentMode("list")}
+                      className={`px-3.5 py-1.5 rounded-full font-extrabold transition cursor-pointer flex items-center gap-1.5 select-none ${
+                        presentMode === "list"
+                          ? "bg-teal-400 text-indigo-950 shadow-md"
                           : "text-slate-400 hover:text-white"
                       }`}
                     >
-                      📊 統計分佈表
+                      <List className="h-3.5 w-3.5" />
+                      <span>📄 一行一行呈現</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setPresentMode("wordcloud")}
-                      className={`px-4 py-2 rounded-full font-bold transition flex items-center gap-1.5 cursor-pointer select-none ${
+                      className={`px-3.5 py-1.5 rounded-full font-extrabold transition flex items-center gap-1.5 cursor-pointer select-none ${
                         presentMode === "wordcloud"
-                          ? "bg-slate-800 text-white shadow-md font-extrabold"
+                          ? "bg-teal-400 text-indigo-950 shadow-md"
                           : "text-slate-400 hover:text-white"
                       }`}
                     >
-                      ☁️ word cloud
+                      <Cloud className="h-3.5 w-3.5" />
+                      <span>☁️ 文字雲呈現</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPresentMode("chart")}
+                      className={`px-3.5 py-1.5 rounded-full font-extrabold transition cursor-pointer flex items-center gap-1.5 select-none ${
+                        presentMode === "chart"
+                          ? "bg-teal-400 text-indigo-950 shadow-md"
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      📊 統計分佈表
                     </button>
                   </div>
                 </div>
@@ -634,16 +681,131 @@ export default function VisualsPanel({
                 
                 <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
                   <h3 className="font-extrabold text-slate-700 text-xs uppercase tracking-widest flex items-center gap-1.5">
-                    {presentMode === "chart" ? "📈 Real-time AI Categorized Statistics" : "🏷️ AI Semantic Word Cloud Map"}
+                    {presentMode === "list" 
+                      ? "📄 一行一行觀點條列呈現 (Line-by-Line Response List)"
+                      : (presentMode === "chart" ? "📈 Real-time AI Categorized Statistics" : "🏷️ AI Semantic Word Cloud Map")}
                   </h3>
-                  <span className="text-xs font-mono text-indigo-700 font-extrabold bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100/85">
-                    現場合合共 {totalAnswersCount} 筆
-                  </span>
+                  
+                  <div className="flex items-center gap-2">
+                    {presentMode === "list" && (
+                      <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                        <button
+                          type="button"
+                          onClick={() => setSortMode("likes")}
+                          className={`px-2.5 py-1 rounded-md text-[10px] font-black transition flex items-center gap-1 cursor-pointer select-none ${
+                            sortMode === "likes"
+                              ? "bg-rose-500 text-white shadow-xs"
+                              : "text-slate-600 hover:text-slate-900"
+                          }`}
+                        >
+                          <Heart className="h-3 w-3 fill-current" />
+                          <span>🔥 依按讚最多</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSortMode("latest")}
+                          className={`px-2.5 py-1 rounded-md text-[10px] font-black transition flex items-center gap-1 cursor-pointer select-none ${
+                            sortMode === "latest"
+                              ? "bg-indigo-950 text-teal-300 shadow-xs"
+                              : "text-slate-600 hover:text-slate-900"
+                          }`}
+                        >
+                          <SortDesc className="h-3 w-3" />
+                          <span>🕒 依最新時間</span>
+                        </button>
+                      </div>
+                    )}
+
+                    <span className="text-xs font-mono text-indigo-700 font-extrabold bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100/85">
+                      現場合合共 {totalAnswersCount} 筆
+                    </span>
+                  </div>
                 </div>
 
-                {/* CHART or WORDCLOUD ZONE */}
+                {/* PRESENTATION CONTENT ZONE */}
                 <div className="my-4 flex-1 flex flex-col justify-center min-h-[340px] md:min-h-[400px]">
-                  {presentMode === "chart" ? (
+                  {presentMode === "list" ? (
+                    <div className="w-full flex-1 overflow-y-auto space-y-3.5 pr-1 max-h-[480px]">
+                      {(() => {
+                        let displayList = [...focusedAnswers];
+                        if (sortMode === "likes") {
+                          displayList.sort((a, b) => (b.likes || 0) - (a.likes || 0));
+                        } else {
+                          displayList.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+                        }
+
+                        const maxLikes = Math.max(...displayList.map(a => a.likes || 0), 0);
+
+                        return displayList.length > 0 ? (
+                          displayList.map((answer) => {
+                            const likesCount = answer.likes || 0;
+                            const isTopLiked = maxLikes > 0 && likesCount === maxLikes;
+                            const isLikedByMe = localStorage.getItem(`cbme_liked_${answer.id}`) === "true";
+                            const isPending = answer.category === "Pending";
+                            const categoryIndex = focusedQuestion.categories.indexOf(answer.category);
+                            const badgeColor = isPending ? "#475569" : (categoryIndex >= 0 ? flatColors[categoryIndex % flatColors.length] : "#3b82f6");
+
+                            return (
+                              <div
+                                key={answer.id}
+                                className={`p-4 rounded-xl border transition-all duration-150 flex flex-col gap-2.5 text-xs animate-fade-in ${
+                                  isTopLiked
+                                    ? "bg-amber-50/70 border-amber-300 ring-1 ring-amber-200/80 shadow-xs"
+                                    : "bg-slate-50 hover:bg-slate-100/70 border-slate-200"
+                                }`}
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <p className="text-slate-850 font-bold leading-relaxed text-sm flex-1">
+                                    "{answer.text}"
+                                  </p>
+
+                                  {isTopLiked && (
+                                    <span className="shrink-0 bg-amber-500 text-slate-950 font-black text-[9px] px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
+                                      👑 熱門高票觀點
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center justify-between gap-4 border-t border-slate-200/60 pt-2.5 flex-wrap">
+                                  <span className="text-[10px] text-slate-400 font-semibold">
+                                    # 匿名參與者 • {answer.createdAt ? new Date(answer.createdAt.seconds * 1000).toLocaleTimeString("zh-TW") : "剛送出"}
+                                  </span>
+
+                                  <div className="flex items-center gap-2">
+                                    <span 
+                                      className="px-2 py-0.5 rounded text-[9px] font-black text-white uppercase tracking-wider" 
+                                      style={{ backgroundColor: badgeColor }}
+                                    >
+                                      {answer.category === "Pending" ? "⏳ 待 AI 歸類" : (answer.category === "Other" ? "綜合領域" : answer.category)}
+                                    </span>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handleLikeAnswer(focusedQuestion.id, answer.id)}
+                                      className={`px-3 py-1 rounded-full text-xs font-black transition flex items-center gap-1.5 cursor-pointer select-none border active:scale-95 ${
+                                        isLikedByMe
+                                          ? "bg-rose-500 text-white border-rose-600 shadow-xs"
+                                          : "bg-white text-rose-600 border-rose-200 hover:bg-rose-50 hover:border-rose-300"
+                                      }`}
+                                      title="點讚愛心表示認同此觀點"
+                                    >
+                                      <Heart className={`h-3.5 w-3.5 ${isLikedByMe ? "fill-white text-white" : "fill-rose-500 text-rose-500"}`} />
+                                      <span>{likesCount}</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div className="text-center py-16 text-slate-400 space-y-2">
+                            <Activity className="h-8 w-8 text-slate-300 animate-pulse mx-auto" />
+                            <p className="font-bold text-xs">目前尚無開放回答，等待參與者輸入發表想法...</p>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  ) : presentMode === "chart" ? (
                     <div className="space-y-5.5 py-2 w-full">
                       {focusedQuestion.type === 'poll' ? (
                         Object.entries(pollOptionStats).map(([opt, count], idx) => {
@@ -823,6 +985,9 @@ export default function VisualsPanel({
                         const categoryIndex = focusedQuestion.categories.indexOf(answer.category);
                         const badgeColor = isPending ? "#475569" : (categoryIndex >= 0 ? flatColors[categoryIndex % flatColors.length] : "#3b82f6");
 
+                        const isLikedByMe = localStorage.getItem(`cbme_liked_${answer.id}`) === "true";
+                        const likesCount = answer.likes || 0;
+
                         return (
                           <div 
                             key={answer.id} 
@@ -837,12 +1002,28 @@ export default function VisualsPanel({
                                 # 匿名參與者 • {answer.createdAt ? new Date(answer.createdAt.seconds * 1000).toLocaleTimeString("zh-TW") : "剛送出"}
                               </span>
                               
-                              <span 
-                                className="px-2 py-0.5 rounded text-[8px] font-black text-white uppercase tracking-wider" 
-                                style={{ backgroundColor: badgeColor }}
-                              >
-                                {answer.category === "Pending" ? "⏳ 待 AI 歸類" : (answer.category === "Other" ? "綜合領域" : answer.category)}
-                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <span 
+                                  className="px-2 py-0.5 rounded text-[8px] font-black text-white uppercase tracking-wider" 
+                                  style={{ backgroundColor: badgeColor }}
+                                >
+                                  {answer.category === "Pending" ? "⏳ 待 AI 歸類" : (answer.category === "Other" ? "綜合領域" : answer.category)}
+                                </span>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleLikeAnswer(focusedQuestion.id, answer.id)}
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-black transition flex items-center gap-1 cursor-pointer select-none border active:scale-95 ${
+                                    isLikedByMe
+                                      ? "bg-rose-500 text-white border-rose-600 shadow-2xs"
+                                      : "bg-white text-rose-600 border-rose-200 hover:bg-rose-50"
+                                  }`}
+                                  title="按讚愛心"
+                                >
+                                  <Heart className={`h-3 w-3 ${isLikedByMe ? "fill-white text-white" : "fill-rose-500 text-rose-500"}`} />
+                                  <span>{likesCount}</span>
+                                </button>
+                              </div>
                             </div>
                           </div>
                         );

@@ -32,6 +32,7 @@ service cloud.firestore {
         && data.categories.size() <= 15
         && (data.categories.size() == 0 || (data.categories.size() > 0 && data.categories[0] is string))
         && (!("type" in data) || data.type is string)
+        && (!("displayMode" in data) || data.displayMode is string)
         && (!("options" in data) || data.options is list)
         && (!("imageUrl" in data) || data.imageUrl == null || data.imageUrl is string)
         && (!("updatedAt" in data) || data.updatedAt is timestamp);
@@ -45,7 +46,9 @@ service cloud.firestore {
         && data.userId is string && data.userId.size() <= 128
         && (!("userName" in data) || (data.userName is string && data.userName.size() <= 100))
         && (!("userTitle" in data) || (data.userTitle is string && data.userTitle.size() <= 100))
-        && (!("userHospital" in data) || (data.userHospital is string && data.userHospital.size() <= 100));
+        && (!("userHospital" in data) || (data.userHospital is string && data.userHospital.size() <= 100))
+        && (!("likes" in data) || data.likes is number)
+        && (!("likedBy" in data) || data.likedBy is list);
     }
 
     match /questions/{questionId} {

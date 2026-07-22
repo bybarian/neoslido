@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { 
   Send, CheckCircle2, AlertCircle, 
-  RefreshCw, Vote, BarChart, History, ArrowRight, Trash2, Lock, Unlock, Sparkles, MessageSquare, User, Briefcase, Building2
+  RefreshCw, Vote, BarChart, History, ArrowRight, Trash2, Lock, Unlock, Sparkles, MessageSquare, User, Briefcase, Building2, Heart, List, Cloud
 } from "lucide-react";
 import { 
-  collection, query, where, onSnapshot, doc, setDoc, serverTimestamp, deleteDoc
+  collection, query, where, onSnapshot, doc, setDoc, serverTimestamp, deleteDoc, updateDoc, increment
 } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "../firebase";
 import { Question, Answer } from "../types";
@@ -80,6 +80,7 @@ export default function ParticipantPanel() {
           categories: data.categories || [],
           imageUrl: data.imageUrl || null,
           type: data.type || 'wordcloud',
+          displayMode: data.displayMode || 'list',
           options: data.options || []
         };
         
@@ -96,6 +97,25 @@ export default function ParticipantPanel() {
     });
     return () => unsubscribe();
   }, []);
+
+  // Handle Like Answer
+  const handleLikeAnswer = async (questionId: string, answerId: string) => {
+    try {
+      const key = `cbme_liked_${answerId}`;
+      const isLiked = localStorage.getItem(key) === "true";
+      const answerRef = doc(db, `questions/${questionId}/answers`, answerId);
+
+      if (isLiked) {
+        localStorage.removeItem(key);
+        await updateDoc(answerRef, { likes: increment(-1) });
+      } else {
+        localStorage.setItem(key, "true");
+        await updateDoc(answerRef, { likes: increment(1) });
+      }
+    } catch (err) {
+      console.error("Failed to update like:", err);
+    }
+  };
 
   // Fetch all compiled answers for the active question for instant visual stats
   useEffect(() => {
@@ -122,7 +142,9 @@ export default function ParticipantPanel() {
           userId: uId,
           userName: data.userName || "匿名",
           userTitle: data.userTitle || "",
-          userHospital: data.userHospital || ""
+          userHospital: data.userHospital || "",
+          likes: data.likes || 0,
+          likedBy: data.likedBy || []
         });
       });
       setAnswers(qAnswers);
@@ -695,6 +717,67 @@ export default function ParticipantPanel() {
                     </div>
                   )}
                 </div>
+
+                {/* LIVE RESPONSES FEED WITH LIKES */}
+                {activeQuestion.type !== 'poll' && (
+                  <div className="pt-3 border-t border-slate-100 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
+                        <MessageSquare className="h-3.5 w-3.5 text-indigo-600" />
+                        現場夥伴觀點與按讚互動 ({answers.length})
+                      </h3>
+                      <span className="text-[10px] text-slate-400 font-semibold">
+                        點擊 ❤️ 為認同的觀點投票
+                      </span>
+                    </div>
+
+                    <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+                      {answers.length > 0 ? (
+                        [...answers]
+                          .sort((a, b) => (b.likes || 0) - (a.likes || 0))
+                          .map((ans) => {
+                            const isLikedByMe = localStorage.getItem(`cbme_liked_${ans.id}`) === "true";
+                            const likesCount = ans.likes || 0;
+
+                            return (
+                              <div
+                                key={ans.id}
+                                className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 flex items-start justify-between gap-3 text-xs"
+                              >
+                                <div className="space-y-1 flex-1">
+                                  <p className="text-slate-850 font-semibold leading-relaxed">
+                                    "{ans.text}"
+                                  </p>
+                                  <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                                    <span>#{ans.userName || "匿名"}</span>
+                                    {ans.userTitle && <span>• {ans.userTitle}</span>}
+                                  </div>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleLikeAnswer(activeQuestion.id, ans.id)}
+                                  className={`px-2.5 py-1 rounded-full text-[11px] font-black transition flex items-center gap-1 cursor-pointer select-none border active:scale-95 shrink-0 ${
+                                    isLikedByMe
+                                      ? "bg-rose-500 text-white border-rose-600 shadow-2xs"
+                                      : "bg-white text-rose-600 border-rose-200 hover:bg-rose-50"
+                                  }`}
+                                  title="為此觀點點讚愛心"
+                                >
+                                  <Heart className={`h-3.5 w-3.5 ${isLikedByMe ? "fill-white text-white" : "fill-rose-500 text-rose-500"}`} />
+                                  <span>{likesCount}</span>
+                                </button>
+                              </div>
+                            );
+                          })
+                      ) : (
+                        <p className="text-center py-6 text-xs text-slate-400 italic">
+                          尚無參與者輸入想法...
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
 
               </div>
             )}

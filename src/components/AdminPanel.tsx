@@ -5,11 +5,11 @@ import {
   Plus, Trash2, Play, CircleAlert, ToggleLeft, ToggleRight, Sparkles, 
   BarChart3, RefreshCw, Layers, Clipboard, Users, LogIn, ChevronRight, Check,
   QrCode, Settings, Settings2, Copy, Lock, Unlock, Monitor, Edit3, Image,
-  Eye, EyeOff, Vote, KeyRound, FileSpreadsheet, Download
+  Eye, EyeOff, Vote, KeyRound, FileSpreadsheet, Download, Heart, List, Cloud
 } from "lucide-react";
 import { 
   collection, query, onSnapshot, doc, setDoc, addDoc, getDocs, deleteDoc, 
-  writeBatch, serverTimestamp, updateDoc 
+  writeBatch, serverTimestamp, updateDoc, increment
 } from "firebase/firestore";
 import { db, auth, googleProvider, handleFirestoreError, OperationType } from "../firebase";
 import { signInWithPopup, signOut, onAuthStateChanged, User } from "firebase/auth";
@@ -74,14 +74,15 @@ export default function AdminPanel({ role, setRole, isolatedMode }: AdminPanelPr
 
   // Create / Edit state
   const [newTitle, setNewTitle] = useState("");
-  const [questionType, setQuestionType] = useState<'wordcloud' | 'poll'>('wordcloud');
+  const [questionType, setQuestionType] = useState<'opentext' | 'wordcloud' | 'poll'>('wordcloud');
+  const [displayMode, setDisplayMode] = useState<'list' | 'wordcloud'>('list');
   const [options, setOptions] = useState<string[]>(["強烈同意", "同意", "普通", "不同意", "強烈不同意"]);
   const [pendingOption, setPendingOption] = useState("");
   const [newCategories, setNewCategories] = useState<string[]>(["臨床決策", "醫病溝通", "學術倫理", "行政效率"]);
   const [pendingCategory, setPendingCategory] = useState("");
   const [newImageUrl, setNewImageUrl] = useState("");
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
-  
+
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
@@ -126,6 +127,7 @@ export default function AdminPanel({ role, setRole, isolatedMode }: AdminPanelPr
     setNewCategories(q.categories);
     setNewImageUrl(q.imageUrl || "");
     setQuestionType(q.type || 'wordcloud');
+    setDisplayMode(q.displayMode || 'list');
     setOptions(q.options && q.options.length > 0 ? q.options : ["強烈同意", "同意", "普通", "不同意", "強烈不同意"]);
     setShowCreateForm(true);
     // Find the element and scroll to it smoothly
@@ -141,6 +143,7 @@ export default function AdminPanel({ role, setRole, isolatedMode }: AdminPanelPr
     setNewCategories(["臨床決策", "醫病溝通", "學術倫理", "行政效率"]);
     setNewImageUrl("");
     setQuestionType('wordcloud');
+    setDisplayMode('list');
     setOptions(["強烈同意", "同意", "普通", "不同意", "強烈不同意"]);
     setShowCreateForm(false);
   };
@@ -309,8 +312,9 @@ export default function AdminPanel({ role, setRole, isolatedMode }: AdminPanelPr
               "題號": `Q${index + 1}`,
               "題目 ID": q.id,
               "題目內容": q.title,
-              "題目類型": q.type === "poll" ? "單選投票" : "開放字雲",
+              "題目類型": q.type === "poll" ? "單選投票 (Poll)" : (q.displayMode === "list" ? "開放問答 (條列式)" : "開放問答 (文字雲)"),
               "答覆 / 投票選項": ans.text,
+              "獲得讚數": ans.likes || 0,
               "AI歸類 / 選擇類別": ans.category || "Pending",
               "填答者姓名": ans.userName || "匿名",
               "職級 / 職稱": ans.userTitle || "未填",
@@ -543,6 +547,7 @@ Classify each response into exactly one of the allowed categories. If any respon
           categories: data.categories || [],
           imageUrl: data.imageUrl || null,
           type: data.type || 'wordcloud',
+          displayMode: data.displayMode || 'list',
           options: data.options || []
         });
       });
@@ -584,7 +589,9 @@ Classify each response into exactly one of the allowed categories. If any respon
             userId: data.userId || "",
             userName: data.userName || "匿名",
             userTitle: data.userTitle || "",
-            userHospital: data.userHospital || ""
+            userHospital: data.userHospital || "",
+            likes: data.likes || 0,
+            likedBy: data.likedBy || []
           });
         });
         
@@ -714,6 +721,7 @@ Classify each response into exactly one of the allowed categories. If any respon
           title: newTitle.trim(),
           categories: newCategories,
           type: questionType,
+          displayMode: questionType === 'poll' ? 'list' : displayMode,
           options: questionType === 'poll' ? options : [],
           imageUrl: newImageUrl.trim() || null,
           updatedAt: serverTimestamp()
@@ -730,6 +738,7 @@ Classify each response into exactly one of the allowed categories. If any respon
           title: newTitle.trim(),
           categories: newCategories,
           type: questionType,
+          displayMode: questionType === 'poll' ? 'list' : displayMode,
           options: questionType === 'poll' ? options : [],
           imageUrl: newImageUrl.trim() || null,
           isActive: true, // Auto active
@@ -1175,13 +1184,13 @@ Classify each response into exactly one of the allowed categories. If any respon
                           type="button"
                           onClick={() => setQuestionType('wordcloud')}
                           className={`flex-1 py-2 px-3 rounded-lg text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer ${
-                            questionType === 'wordcloud'
+                            questionType !== 'poll'
                               ? "bg-white text-indigo-900 shadow-xs border border-indigo-200"
                               : "text-slate-500 hover:text-slate-800"
                           }`}
                         >
                           <Sparkles className="h-4 w-4 text-indigo-500" />
-                          <span>☁️ 文字雲 / 簡答想法 (Word Cloud)</span>
+                          <span>💬 開放問答 (Open Text)</span>
                         </button>
                         <button
                           type="button"
@@ -1193,10 +1202,45 @@ Classify each response into exactly one of the allowed categories. If any respon
                           }`}
                         >
                           <Vote className="h-4 w-4 text-emerald-600" />
-                          <span>📊 投票問卷單選題 (Poll / Vote)</span>
+                          <span>📊 投票問卷單選題 (Poll)</span>
                         </button>
                       </div>
                     </div>
+
+                    {questionType !== 'poll' && (
+                      <div className="space-y-1.5 bg-indigo-50/60 p-3.5 rounded-xl border border-indigo-100 animate-fade-in">
+                        <label className="text-[11px] font-black text-indigo-950 block uppercase tracking-wider flex items-center gap-1.5">
+                          <List className="h-3.5 w-3.5 text-indigo-600" />
+                          Step 0.5: 開放問答預設呈現方式 (Display Mode)
+                        </label>
+                        <div className="flex gap-2 p-1 bg-white rounded-xl border border-indigo-200/80">
+                          <button
+                            type="button"
+                            onClick={() => setDisplayMode('list')}
+                            className={`flex-1 py-2 px-3 rounded-lg text-xs font-extrabold transition flex items-center justify-center gap-2 cursor-pointer ${
+                              displayMode === 'list'
+                                ? "bg-indigo-950 text-teal-300 shadow-xs"
+                                : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                            }`}
+                          >
+                            <List className="h-4 w-4 text-teal-400" />
+                            <span>📄 一行一行條列呈現 (Line-by-Line List / Feed)</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDisplayMode('wordcloud')}
+                            className={`flex-1 py-2 px-3 rounded-lg text-xs font-extrabold transition flex items-center justify-center gap-2 cursor-pointer ${
+                              displayMode === 'wordcloud'
+                                ? "bg-indigo-950 text-teal-300 shadow-xs"
+                                : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                            }`}
+                          >
+                            <Cloud className="h-4 w-4 text-teal-400" />
+                            <span>☁️ 文字雲呈現 (Word Cloud)</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                     {/* Title details + image uploads */}

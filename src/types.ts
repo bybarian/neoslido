@@ -5,7 +5,8 @@ export interface Question {
   isActive: boolean;
   categories: string[];
   imageUrl?: string | null;
-  type?: 'wordcloud' | 'poll'; // 'wordcloud' (text answer) or 'poll' (single choice vote)
+  type?: 'opentext' | 'wordcloud' | 'poll'; // 'opentext' / 'wordcloud' (text answer) or 'poll' (single choice vote)
+  displayMode?: 'list' | 'wordcloud'; // Default display mode for open text questions ('list' for line-by-line or 'wordcloud')
   options?: string[]; // Options for poll mode
 }
 
@@ -18,6 +19,8 @@ export interface Answer {
   userName?: string;
   userTitle?: string;
   userHospital?: string;
+  likes?: number;
+  likedBy?: string[];
 }
 
 export interface CategorySummary {
