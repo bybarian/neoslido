@@ -492,7 +492,8 @@ Classify each response into exactly one of the allowed categories. If any respon
             text: data.text || "",
             category: data.category || "Other",
             createdAt: data.createdAt,
-            userId: data.userId || ""
+            userId: data.userId || "",
+            userName: data.userName || "匿名"
           });
         });
         
@@ -1909,7 +1910,7 @@ Classify each response into exactly one of the allowed categories. If any respon
                                 "{answer.text}"
                               </p>
                               <span className="text-[10px] text-slate-400 block font-mono">
-                                # 匿名參與者 • {answer.createdAt ? new Date(answer.createdAt.seconds * 1000).toLocaleTimeString("zh-TW") : "剛送出"}
+                                # {answer.userName || "匿名參與者"} • {answer.createdAt ? new Date(answer.createdAt.seconds * 1000).toLocaleTimeString("zh-TW") : "剛送出"}
                               </span>
                             </div>
 

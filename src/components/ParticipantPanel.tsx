@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { 
   Send, CheckCircle2, AlertCircle, 
-  RefreshCw, Vote, BarChart, History, ArrowRight, Trash2, Lock, Unlock, Sparkles, MessageSquare
+  RefreshCw, Vote, BarChart, History, ArrowRight, Trash2, Lock, Unlock, Sparkles, MessageSquare, User
 } from "lucide-react";
 import { 
   collection, query, where, onSnapshot, doc, setDoc, serverTimestamp, deleteDoc
@@ -15,7 +15,15 @@ export default function ParticipantPanel() {
   const [inputText, setInputText] = useState("");
   const [selectedOption, setSelectedOption] = useState<string>("");
   const [userId, setUserId] = useState("");
+  const [userName, setUserName] = useState(() => {
+    return localStorage.getItem("cbme_participant_name") || "";
+  });
   const [loading, setLoading] = useState(false);
+
+  const handleUserNameChange = (val: string) => {
+    setUserName(val);
+    localStorage.setItem("cbme_participant_name", val);
+  };
   const [successAnswer, setSuccessAnswer] = useState<{ text: string; category: string } | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
   
@@ -97,7 +105,8 @@ export default function ParticipantPanel() {
           text: data.text || "",
           category: data.category || "Other",
           createdAt: data.createdAt,
-          userId: uId
+          userId: uId,
+          userName: data.userName || "匿名"
         });
       });
       setAnswers(qAnswers);
@@ -152,7 +161,8 @@ export default function ParticipantPanel() {
         text: textToSubmit,
         category: activeQuestion.type === "poll" ? "Vote" : "Pending",
         createdAt: serverTimestamp(),
-        userId: userId
+        userId: userId,
+        userName: userName.trim() || "匿名"
       });
 
       // Clear input & transition to presentation view
@@ -375,6 +385,26 @@ export default function ParticipantPanel() {
                       </span>
                     </div>
 
+                    {/* Participant Name Input Block */}
+                    <div className="p-3.5 bg-slate-50/90 rounded-xl border border-slate-200 space-y-1.5 shadow-2xs">
+                      <label className="text-xs font-extrabold text-slate-700 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5">
+                          <User className="h-4 w-4 text-indigo-600 shrink-0" />
+                          填答者姓名 / 暱稱或單位（選填）：
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-normal">留空則以「匿名」送出</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={userName}
+                        onChange={(e) => handleUserNameChange(e.target.value)}
+                        placeholder="例：王小明醫師 / 慈濟醫院 (亦可不填)"
+                        className="w-full text-xs rounded-lg border border-slate-200 p-2.5 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 placeholder:text-slate-400 font-medium"
+                        maxLength={30}
+                        disabled={loading}
+                      />
+                    </div>
+
                     {/* ERROR STATE */}
                     {errorText && (
                       <div className="p-3 bg-rose-50 rounded-xl border border-rose-200 text-rose-700 font-medium text-xs flex items-center gap-2">
@@ -538,9 +568,14 @@ export default function ParticipantPanel() {
                     <div className="space-y-1.5 max-h-40 overflow-y-auto">
                       {mySubmissions.map((sub) => (
                         <div key={sub.id} className="p-2.5 bg-white rounded-lg border border-slate-150 flex items-center justify-between gap-3 text-xs">
-                          <p className="text-slate-800 font-extrabold italic truncate">
-                            "{sub.text}"
-                          </p>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-slate-800 font-extrabold italic truncate">
+                              "{sub.text}"
+                            </p>
+                            <span className="text-[10px] text-slate-400 font-mono block">
+                              填答者：{sub.userName || "匿名"}
+                            </span>
+                          </div>
                           <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded shrink-0">
                             ✓ 已記錄
                           </span>
