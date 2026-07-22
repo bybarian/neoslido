@@ -42,7 +42,10 @@ service cloud.firestore {
       return data.text is string && data.text.size() <= 1000
         && data.category is string && data.category.size() <= 100
         && data.createdAt is timestamp
-        && data.userId is string && data.userId.size() <= 128;
+        && data.userId is string && data.userId.size() <= 128
+        && (!("userName" in data) || (data.userName is string && data.userName.size() <= 100))
+        && (!("userTitle" in data) || (data.userTitle is string && data.userTitle.size() <= 100))
+        && (!("userHospital" in data) || (data.userHospital is string && data.userHospital.size() <= 100));
     }
 
     match /questions/{questionId} {
