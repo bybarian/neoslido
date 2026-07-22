@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { 
-  Brain, Play, Sparkles, Maximize, Minimize, ArrowLeft, Activity, Phone, Monitor, Presentation, Users
+  Brain, Play, Sparkles, Maximize, Minimize, ArrowLeft, Activity, Phone, Monitor, Presentation, Users,
+  Lock, Unlock, KeyRound, Eye, EyeOff
 } from "lucide-react";
 import { 
   collection, query, onSnapshot, doc
@@ -24,6 +25,38 @@ export default function VisualsPanel({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [joinUrl, setJoinUrl] = useState("");
   const [selectedTerm, setSelectedTerm] = useState<string | null>(null);
+
+  // Speaker Lock for Big Screen Projection
+  const [isUnlocked, setIsUnlocked] = useState(false);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+
+  useEffect(() => {
+    const adminUnlocked = localStorage.getItem("cbme_admin_unlocked");
+    const visualsUnlocked = localStorage.getItem("cbme_visuals_unlocked");
+    if (adminUnlocked === "true" || visualsUnlocked === "true") {
+      setIsUnlocked(true);
+    }
+  }, []);
+
+  const handleUnlock = () => {
+    if (passwordInput === "00000") {
+      setIsUnlocked(true);
+      localStorage.setItem("cbme_visuals_unlocked", "true");
+      localStorage.setItem("cbme_admin_unlocked", "true");
+      setPasswordInput("");
+      setPasswordError("");
+    } else {
+      setPasswordError("密碼錯誤，請重新輸入大會講者授權密碼");
+    }
+  };
+
+  const handleLock = () => {
+    setIsUnlocked(false);
+    localStorage.removeItem("cbme_visuals_unlocked");
+    localStorage.removeItem("cbme_admin_unlocked");
+  };
 
   useEffect(() => {
     setSelectedTerm(null);
@@ -78,7 +111,9 @@ export default function VisualsPanel({
           createdAt: data.createdAt,
           isActive: data.isActive || false,
           categories: data.categories || [],
-          imageUrl: data.imageUrl || null
+          imageUrl: data.imageUrl || null,
+          type: data.type || 'wordcloud',
+          options: data.options || []
         });
       });
       // Sort: active questions first
@@ -153,6 +188,82 @@ export default function VisualsPanel({
   const focusedAnswers = focusedQuestion ? (answersMap[focusedQuestion.id] || []) : [];
   const totalAnswersCount = focusedAnswers.length;
 
+  if (!isUnlocked) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-indigo-950 via-slate-900 to-indigo-900 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-indigo-200/50 p-8 space-y-6">
+          <div className="text-center space-y-2">
+            <div className="mx-auto h-14 w-14 rounded-2xl bg-indigo-100 text-indigo-950 flex items-center justify-center shadow-md">
+              <Lock className="h-7 w-7 text-indigo-800" />
+            </div>
+            <h2 className="text-lg font-black text-slate-800 tracking-tight">
+              大螢幕投影 講者控制權限鎖定
+            </h2>
+            <p className="text-xs text-slate-500 font-medium leading-relaxed">
+              大會大螢幕互動投放看板已鎖定為講者/主持人專用權限。請輸入講者授權密碼以開啟大螢幕投影主控。
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={passwordInput}
+                onChange={(e) => {
+                  setPasswordInput(e.target.value);
+                  setPasswordError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleUnlock();
+                  }
+                }}
+                placeholder="請輸入大會講者授權密碼"
+                className="w-full text-center text-sm rounded-xl border border-slate-300 p-3.5 pr-10 focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono text-slate-800 shadow-inner"
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                title={showPassword ? "隱藏密碼" : "顯示密碼"}
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+
+            {passwordError && (
+              <p className="text-xs font-bold text-rose-600 text-center animate-fade-in">
+                {passwordError}
+              </p>
+            )}
+
+            <button
+              type="button"
+              onClick={handleUnlock}
+              className="w-full py-3.5 px-4 bg-indigo-950 hover:bg-indigo-900 text-teal-300 font-extrabold text-xs rounded-xl shadow-lg shadow-indigo-950/20 transition cursor-pointer flex items-center justify-center gap-2"
+            >
+              <KeyRound className="h-4 w-4 text-teal-400" />
+              驗證講者密碼並開啟大螢幕投影
+            </button>
+          </div>
+
+          <div className="pt-2 border-t border-slate-200 text-center">
+            <button
+              type="button"
+              onClick={() => {
+                if (setRole) setRole("participant");
+              }}
+              className="text-xs font-bold text-slate-400 hover:text-indigo-700 transition cursor-pointer"
+            >
+              ← 返回學員互動端
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const sortedQuestions = [...questions].sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
   const currentIndex = sortedQuestions.findIndex(q => q.id === focusedQuestion?.id);
 
@@ -175,6 +286,24 @@ export default function VisualsPanel({
           categoryStats[match]++;
         } else {
           categoryStats["Other"]++;
+        }
+      }
+    });
+  }
+
+  // Compute poll option statistics if question type is poll
+  const pollOptionStats: { [opt: string]: number } = {};
+  if (focusedQuestion && focusedQuestion.type === 'poll' && focusedQuestion.options) {
+    focusedQuestion.options.forEach(opt => {
+      pollOptionStats[opt] = 0;
+    });
+    focusedAnswers.forEach(ans => {
+      if (pollOptionStats[ans.text] !== undefined) {
+        pollOptionStats[ans.text]++;
+      } else {
+        const found = focusedQuestion.options?.find(o => o.trim() === ans.text.trim());
+        if (found) {
+          pollOptionStats[found]++;
         }
       }
     });
@@ -291,6 +420,60 @@ export default function VisualsPanel({
       {/* MAIN CONTENT WORKSPACE */}
       <main className="flex-1 p-6 md:p-8 xl:p-10 flex flex-col justify-start max-w-7xl mx-auto w-full gap-8 z-10">
         
+        {/* 🌟 大螢幕問卷與投票分頁切換器 (Question Tabs & Pagination) */}
+        {sortedQuestions.length > 0 && (
+          <div className="bg-white/90 backdrop-blur-md p-3 rounded-2xl border border-slate-200/80 shadow-xs space-y-2">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-500 px-1">
+              <span className="flex items-center gap-1.5 text-indigo-900 font-extrabold">
+                <Presentation className="h-4 w-4 text-indigo-600" />
+                大螢幕互動問卷與投票分頁 (Question Tabs)
+              </span>
+              <span className="text-[11px] font-mono text-slate-400">
+                點擊切換當前投放題目 (共 {sortedQuestions.length} 題)
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+              {sortedQuestions.map((q, idx) => {
+                const isSelected = q.id === focusedQuestion?.id;
+                const isPoll = q.type === "poll";
+                return (
+                  <button
+                    key={q.id}
+                    type="button"
+                    onClick={() => setActiveQuestion(q)}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2.5 shrink-0 cursor-pointer select-none border ${
+                      isSelected
+                        ? "bg-indigo-950 text-white border-indigo-900 shadow-md ring-2 ring-teal-400"
+                        : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 hover:border-slate-300"
+                    }`}
+                  >
+                    <span className={`text-[10px] font-mono font-black px-2 py-0.5 rounded-md ${
+                      isSelected 
+                        ? "bg-teal-400 text-indigo-950 shadow-2xs" 
+                        : "bg-slate-200/80 text-slate-600"
+                    }`}>
+                      Q{idx + 1}
+                    </span>
+
+                    <span className="truncate max-w-[160px] md:max-w-[240px]">
+                      {q.title}
+                    </span>
+
+                    <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                      isPoll 
+                        ? (isSelected ? "bg-emerald-400 text-emerald-950" : "bg-emerald-100 text-emerald-800 border border-emerald-300")
+                        : (isSelected ? "bg-indigo-700 text-indigo-100" : "bg-indigo-100 text-indigo-800 border border-indigo-200")
+                    }`}>
+                      {isPoll ? "📊 投票" : "☁️ 字雲"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {focusedQuestion ? (
           <div className="space-y-8 flex-1 flex flex-col">
             
@@ -424,36 +607,66 @@ export default function VisualsPanel({
                 <div className="my-4 flex-1 flex flex-col justify-center min-h-[340px] md:min-h-[400px]">
                   {presentMode === "chart" ? (
                     <div className="space-y-5.5 py-2 w-full">
-                      {Object.entries(categoryStats).map(([category, count], idx) => {
-                        const percentage = totalAnswersCount > 0 ? Math.round((count / totalAnswersCount) * 100) : 0;
-                        const barColor = flatColors[idx % flatColors.length];
+                      {focusedQuestion.type === 'poll' ? (
+                        Object.entries(pollOptionStats).map(([opt, count], idx) => {
+                          const percentage = totalAnswersCount > 0 ? Math.round((count / totalAnswersCount) * 100) : 0;
+                          const barColor = flatColors[idx % flatColors.length];
 
-                        if (category === "Other" && count === 0) return null;
-                        if (category === "Pending") return null;
+                          return (
+                            <div key={opt} className="space-y-2">
+                              <div className="flex items-center justify-between text-xs md:text-sm font-extrabold">
+                                <span className="text-slate-800 flex items-center gap-2">
+                                  <span className="inline-block h-3.5 w-3.5 rounded-md" style={{ backgroundColor: barColor }} />
+                                  <span>{opt}</span>
+                                </span>
+                                <span className="text-slate-600 font-mono text-[11px] md:text-xs">
+                                  {count} 票 ({percentage}%)
+                                </span>
+                              </div>
+                              <div className="h-5 w-full bg-slate-100 rounded-lg overflow-hidden relative border border-slate-200/60">
+                                <div 
+                                  className="h-full rounded-lg transition-all duration-1000 ease-out" 
+                                  style={{ 
+                                    width: `${totalAnswersCount > 0 ? (count / totalAnswersCount) * 100 : 0}%`,
+                                    backgroundColor: barColor
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        Object.entries(categoryStats).map(([category, count], idx) => {
+                          const percentage = totalAnswersCount > 0 ? Math.round((count / totalAnswersCount) * 100) : 0;
+                          const barColor = flatColors[idx % flatColors.length];
 
-                        return (
-                          <div key={category} className="space-y-2">
-                            <div className="flex items-center justify-between text-xs md:text-sm font-extrabold">
-                              <span className="text-slate-700 flex items-center gap-2">
-                                <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: barColor }} />
-                                {category === "Other" ? "其他 / 綜合回饋" : category}
-                              </span>
-                              <span className="text-slate-500 font-mono text-[11px] md:text-xs">
-                                {count} 筆想法 ({percentage}%)
-                              </span>
+                          if (category === "Other" && count === 0) return null;
+                          if (category === "Pending") return null;
+
+                          return (
+                            <div key={category} className="space-y-2">
+                              <div className="flex items-center justify-between text-xs md:text-sm font-extrabold">
+                                <span className="text-slate-700 flex items-center gap-2">
+                                  <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: barColor }} />
+                                  {category === "Other" ? "其他 / 綜合回饋" : category}
+                                </span>
+                                <span className="text-slate-500 font-mono text-[11px] md:text-xs">
+                                  {count} 筆想法 ({percentage}%)
+                                </span>
+                              </div>
+                              <div className="h-4 w-full bg-slate-100 rounded-full overflow-hidden relative">
+                                <div 
+                                  className="h-full rounded-full transition-all duration-1000 ease-out" 
+                                  style={{ 
+                                    width: `${totalAnswersCount > 0 ? (count / totalAnswersCount) * 100 : 0}%`,
+                                    backgroundColor: barColor
+                                  }}
+                                />
+                              </div>
                             </div>
-                            <div className="h-4 w-full bg-slate-100 rounded-full overflow-hidden relative">
-                              <div 
-                                className="h-full rounded-full transition-all duration-1000 ease-out" 
-                                style={{ 
-                                  width: `${totalAnswersCount > 0 ? (count / totalAnswersCount) * 100 : 0}%`,
-                                  backgroundColor: barColor
-                                }}
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })
+                      )}
                     </div>
                   ) : (
                     <div className="w-full h-full flex flex-col justify-center items-center py-4">
@@ -623,6 +836,16 @@ export default function VisualsPanel({
 
       {/* FLOATING ACTION UTILITY TRIGGERS */}
       <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={handleLock}
+          className="bg-indigo-950/95 hover:bg-rose-950 border border-indigo-800/80 px-3.5 py-2.5 rounded-xl text-xs font-black text-emerald-400 hover:text-rose-300 shadow-xl transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5 h-10 cursor-pointer select-none"
+          title="點擊重新鎖定大螢幕講者控制權限"
+        >
+          <Unlock className="h-4 w-4 text-emerald-400" />
+          <span>講者已解鎖 (鎖定)</span>
+        </button>
+
         <button
           type="button"
           onClick={toggleFullscreen}

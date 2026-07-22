@@ -8,7 +8,9 @@
         "title": { "type": "string", "description": "The question text/title" },
         "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
         "isActive": { "type": "boolean", "description": "Whether this question is currently active" },
-        "categories": { "type": "array", "description": "List of user-defined category strings" }
+        "categories": { "type": "array", "description": "List of user-defined category strings" },
+        "type": { "type": "string", "description": "Question type: wordcloud or poll" },
+        "options": { "type": "array", "description": "Options array for poll mode" }
       },
       "required": ["title", "createdAt", "isActive", "categories"]
     },

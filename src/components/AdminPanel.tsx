@@ -3,7 +3,8 @@ import { GoogleGenAI } from "@google/genai";
 import { 
   Plus, Trash2, Play, CircleAlert, ToggleLeft, ToggleRight, Sparkles, 
   BarChart3, RefreshCw, Layers, Clipboard, Users, LogIn, ChevronRight, Check,
-  QrCode, Settings, Settings2, Copy, Lock, Unlock, Monitor, Edit3, Image
+  QrCode, Settings, Settings2, Copy, Lock, Unlock, Monitor, Edit3, Image,
+  Eye, EyeOff, Vote, KeyRound
 } from "lucide-react";
 import { 
   collection, query, onSnapshot, doc, setDoc, addDoc, getDocs, deleteDoc, 
@@ -48,6 +49,7 @@ export default function AdminPanel({ role, setRole, isolatedMode }: AdminPanelPr
   });
   const [passwordInput, setPasswordInput] = useState("");
   const [passwordError, setPasswordError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleUnlock = () => {
     if (passwordInput === "00000") {
@@ -55,9 +57,9 @@ export default function AdminPanel({ role, setRole, isolatedMode }: AdminPanelPr
       localStorage.setItem("cbme_admin_unlocked", "true");
       setPasswordInput("");
       setPasswordError("");
-      showMessage("🔓 管理權限驗證成功！已解鎖大會看版自訂、題目設計與雙端測試切換工具。", "success");
+      showMessage("🔓 管理權限驗證成功！已解鎖大會看版自訂與題目設計控制台。", "success");
     } else {
-      setPasswordError("密碼錯誤，請輸入大會預設密碼 (例如: 00000)");
+      setPasswordError("密碼錯誤，請輸入授權解鎖密碼");
       showMessage("❌ 密碼錯誤，拒絕存取管理工作區。", "error");
     }
   };
@@ -71,6 +73,9 @@ export default function AdminPanel({ role, setRole, isolatedMode }: AdminPanelPr
 
   // Create / Edit state
   const [newTitle, setNewTitle] = useState("");
+  const [questionType, setQuestionType] = useState<'wordcloud' | 'poll'>('wordcloud');
+  const [options, setOptions] = useState<string[]>(["強烈同意", "同意", "普通", "不同意", "強烈不同意"]);
+  const [pendingOption, setPendingOption] = useState("");
   const [newCategories, setNewCategories] = useState<string[]>(["臨床決策", "醫病溝通", "學術倫理", "行政效率"]);
   const [pendingCategory, setPendingCategory] = useState("");
   const [newImageUrl, setNewImageUrl] = useState("");
@@ -119,6 +124,8 @@ export default function AdminPanel({ role, setRole, isolatedMode }: AdminPanelPr
     setNewTitle(q.title);
     setNewCategories(q.categories);
     setNewImageUrl(q.imageUrl || "");
+    setQuestionType(q.type || 'wordcloud');
+    setOptions(q.options && q.options.length > 0 ? q.options : ["強烈同意", "同意", "普通", "不同意", "強烈不同意"]);
     setShowCreateForm(true);
     // Find the element and scroll to it smoothly
     const formElement = document.getElementById("admin-question-form-container");
@@ -132,6 +139,8 @@ export default function AdminPanel({ role, setRole, isolatedMode }: AdminPanelPr
     setNewTitle("");
     setNewCategories(["臨床決策", "醫病溝通", "學術倫理", "行政效率"]);
     setNewImageUrl("");
+    setQuestionType('wordcloud');
+    setOptions(["強烈同意", "同意", "普通", "不同意", "強烈不同意"]);
     setShowCreateForm(false);
   };
 
@@ -438,7 +447,9 @@ Classify each response into exactly one of the allowed categories. If any respon
           createdAt: data.createdAt,
           isActive: data.isActive || false,
           categories: data.categories || [],
-          imageUrl: data.imageUrl || null
+          imageUrl: data.imageUrl || null,
+          type: data.type || 'wordcloud',
+          options: data.options || []
         });
       });
       // Sort: active questions first, then by creation date descending
@@ -593,6 +604,11 @@ Classify each response into exactly one of the allowed categories. If any respon
       return;
     }
 
+    if (questionType === 'poll' && options.length < 2) {
+      showMessage("投票模式至少需要設定 2 個選項！", "error");
+      return;
+    }
+
     setLoading(true);
     try {
       if (editingQuestionId) {
@@ -600,6 +616,8 @@ Classify each response into exactly one of the allowed categories. If any respon
         await updateDoc(doc(db, "questions", editingQuestionId), {
           title: newTitle.trim(),
           categories: newCategories,
+          type: questionType,
+          options: questionType === 'poll' ? options : [],
           imageUrl: newImageUrl.trim() || null,
           updatedAt: serverTimestamp()
         });
@@ -614,6 +632,8 @@ Classify each response into exactly one of the allowed categories. If any respon
         await setDoc(doc(db, "questions", questionId), {
           title: newTitle.trim(),
           categories: newCategories,
+          type: questionType,
+          options: questionType === 'poll' ? options : [],
           imageUrl: newImageUrl.trim() || null,
           isActive: true, // Auto active
           createdAt: serverTimestamp()
@@ -634,6 +654,8 @@ Classify each response into exactly one of the allowed categories. If any respon
       setNewTitle("");
       setNewCategories(["臨床決策", "醫病溝通", "學術倫理", "行政效率"]);
       setNewImageUrl("");
+      setQuestionType('wordcloud');
+      setOptions(["強烈同意", "同意", "普通", "不同意", "強烈不同意"]);
       setEditingQuestionId(null);
       setShowCreateForm(false);
     } catch (error) {
@@ -807,6 +829,91 @@ Classify each response into exactly one of the allowed categories. If any respon
     }
   });
 
+  if (!isAdminUnlocked) {
+    return (
+      <div className="min-h-[75vh] flex items-center justify-center p-4">
+        {/* Feedback Alert */}
+        {message && (
+          <div className={`fixed bottom-5 right-5 z-50 flex items-center gap-3 rounded-lg px-4 py-3 shadow-lg fade-in text-sm font-semibold text-white ${
+            message.type === "success" ? "bg-emerald-600" : "bg-rose-600"
+          }`}>
+            <span>{message.text}</span>
+          </div>
+        )}
+
+        <div className="max-w-md w-full bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-indigo-100 p-8 space-y-6 text-center animate-fade-in">
+          <div className="mx-auto h-16 w-16 rounded-2xl bg-indigo-100 text-indigo-950 flex items-center justify-center shadow-md">
+            <Lock className="h-8 w-8 text-indigo-800" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-lg font-extrabold text-slate-800 tracking-tight">
+              🔐 大會講者控制台 權限驗證鎖定
+            </h2>
+            <p className="text-xs text-slate-500 font-medium leading-relaxed">
+              本區域為講者與主持人專用主控台（包含題目設計、現場投放切換與大會動態標題）。請輸入講者授權密碼以解鎖管理權限。
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={passwordInput}
+                onChange={(e) => {
+                  setPasswordInput(e.target.value);
+                  setPasswordError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleUnlock();
+                  }
+                }}
+                placeholder="請輸入大會講者授權密碼"
+                className="w-full text-center text-sm rounded-xl border border-slate-300 p-3.5 pr-10 focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono text-slate-800 shadow-inner"
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer transition"
+                title={showPassword ? "隱藏密碼" : "顯示密碼"}
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+
+            {passwordError && (
+              <p className="text-xs font-bold text-rose-600 text-center animate-fade-in">
+                {passwordError}
+              </p>
+            )}
+
+            <button
+              type="button"
+              onClick={handleUnlock}
+              className="w-full py-3.5 px-4 bg-indigo-950 hover:bg-indigo-900 text-teal-300 font-extrabold text-xs rounded-xl shadow-lg shadow-indigo-950/20 transition cursor-pointer flex items-center justify-center gap-2"
+            >
+              <KeyRound className="h-4 w-4 text-teal-400" />
+              驗證密碼並解鎖講者控制台
+            </button>
+          </div>
+
+          {setRole && (
+            <div className="pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setRole("participant")}
+                className="text-xs font-bold text-slate-400 hover:text-indigo-700 transition cursor-pointer"
+              >
+                ← 返回學員互動端
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Feedback Alert */}
@@ -959,8 +1066,42 @@ Classify each response into exactly one of the allowed categories. If any respon
 
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                   {/* Left side inputs */}
-                  <div className="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div className="lg:col-span-8 space-y-5">
                     
+                    {/* Step 0: 選擇題目模式 */}
+                    <div className="space-y-1.5 bg-white p-3.5 rounded-xl border border-slate-200">
+                      <label className="text-[11px] font-black text-slate-700 block uppercase tracking-wider">
+                        Step 0: 選擇互動題目模式 (Question Mode)
+                      </label>
+                      <div className="flex gap-2 p-1 bg-slate-100/80 rounded-xl border border-slate-200">
+                        <button
+                          type="button"
+                          onClick={() => setQuestionType('wordcloud')}
+                          className={`flex-1 py-2 px-3 rounded-lg text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer ${
+                            questionType === 'wordcloud'
+                              ? "bg-white text-indigo-900 shadow-xs border border-indigo-200"
+                              : "text-slate-500 hover:text-slate-800"
+                          }`}
+                        >
+                          <Sparkles className="h-4 w-4 text-indigo-500" />
+                          <span>☁️ 文字雲 / 簡答想法 (Word Cloud)</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setQuestionType('poll')}
+                          className={`flex-1 py-2 px-3 rounded-lg text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer ${
+                            questionType === 'poll'
+                              ? "bg-white text-emerald-900 shadow-xs border border-emerald-200"
+                              : "text-slate-500 hover:text-slate-800"
+                          }`}
+                        >
+                          <Vote className="h-4 w-4 text-emerald-600" />
+                          <span>📊 投票問卷單選題 (Poll / Vote)</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                     {/* Title details + image uploads */}
                     <div className="space-y-4">
                       <div className="space-y-1">
@@ -1122,6 +1263,110 @@ Classify each response into exactly one of the allowed categories. If any respon
                         </div>
                       </div>
                     </div>
+                  </div>
+
+                    {/* POLL OPTIONS CONFIGURATION (Only visible when questionType === 'poll') */}
+                    {questionType === 'poll' && (
+                      <div className="space-y-3 bg-emerald-50/60 p-4 rounded-xl border border-emerald-200">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[11px] font-black text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
+                            <Vote className="h-4 w-4 text-emerald-600" />
+                            Step 2: 設定投票選項 (Poll Options)
+                          </label>
+                          <span className="text-[10px] text-emerald-700 font-bold bg-emerald-100 px-2 py-0.5 rounded-full">
+                            目前 {options.length} 個選項
+                          </span>
+                        </div>
+
+                        {/* Presets */}
+                        <div className="space-y-1.5">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase block">
+                            ⚡ 快速套用常見評量選項範本：
+                          </span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {[
+                              { name: "5階同意度", list: ["強烈同意", "同意", "普通", "不同意", "強烈不同意"] },
+                              { name: "4階滿意度", list: ["極滿意", "滿意", "不滿意", "極不滿意"] },
+                              { name: "單選 A/B/C/D", list: ["選項 A", "選項 B", "選項 C", "選項 D"] },
+                              { name: "二分法 (是/否)", list: ["是 (Yes)", "否 (No)"] }
+                            ].map(preset => (
+                              <button
+                                key={preset.name}
+                                type="button"
+                                onClick={() => setOptions(preset.list)}
+                                className="text-[10px] px-2.5 py-1 rounded-md bg-white hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold transition cursor-pointer shadow-2xs"
+                              >
+                                {preset.name}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Options List */}
+                        <div className="space-y-2 pt-1">
+                          {options.map((opt, idx) => (
+                            <div key={idx} className="flex items-center gap-2 bg-white p-2 rounded-lg border border-emerald-200/80 shadow-2xs">
+                              <span className="text-xs font-mono font-bold text-emerald-700 w-6 text-center shrink-0">
+                                #{idx + 1}
+                              </span>
+                              <input
+                                type="text"
+                                value={opt}
+                                onChange={(e) => {
+                                  const updated = [...options];
+                                  updated[idx] = e.target.value;
+                                  setOptions(updated);
+                                }}
+                                className="flex-1 text-xs font-bold text-slate-800 border-b border-transparent focus:border-emerald-500 focus:outline-hidden px-1"
+                                placeholder={`選項 ${idx + 1}`}
+                              />
+                              {options.length > 2 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setOptions(options.filter((_, i) => i !== idx))}
+                                  className="text-slate-400 hover:text-rose-600 p-1 text-xs transition cursor-pointer"
+                                  title="刪除選項"
+                                >
+                                  &times;
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Add Custom Option Input */}
+                        <div className="flex gap-2 pt-1">
+                          <input
+                            type="text"
+                            value={pendingOption}
+                            onChange={(e) => setPendingOption(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                if (pendingOption.trim()) {
+                                  setOptions([...options, pendingOption.trim()]);
+                                  setPendingOption("");
+                                }
+                              }
+                            }}
+                            placeholder="輸入自訂新選項名稱，例如：選項 E"
+                            className="flex-1 text-xs rounded-lg border border-slate-300 p-2 bg-white focus:ring-1 focus:ring-emerald-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (pendingOption.trim()) {
+                                setOptions([...options, pendingOption.trim()]);
+                                setPendingOption("");
+                              }
+                            }}
+                            className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs rounded-lg cursor-pointer transition shadow-2xs shrink-0"
+                          >
+                            + 新增選項
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Right side: Real-time Live Preview Card (平行顯示題目預覽) */}
@@ -1721,21 +1966,31 @@ Classify each response into exactly one of the allowed categories. If any respon
               </div>
               
               <div className="space-y-2 pt-1">
-                <input
-                  type="password"
-                  value={passwordInput}
-                  onChange={(e) => {
-                    setPasswordInput(e.target.value);
-                    setPasswordError("");
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      handleUnlock();
-                    }
-                  }}
-                  placeholder="請輸入解鎖密碼 (預設: 00000)"
-                  className="w-full text-center text-xs rounded-lg border border-slate-300 p-2 focus:ring-1 focus:ring-cyan-500 focus:outline-hidden font-mono"
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={passwordInput}
+                    onChange={(e) => {
+                      setPasswordInput(e.target.value);
+                      setPasswordError("");
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleUnlock();
+                      }
+                    }}
+                    placeholder="請輸入大會授權管理密碼"
+                    className="w-full text-center text-xs rounded-lg border border-slate-300 p-2 pr-9 focus:ring-1 focus:ring-cyan-500 focus:outline-hidden font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition cursor-pointer p-0.5"
+                    title={showPassword ? "隱藏密碼" : "顯示密碼"}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
                 {passwordError && (
                   <p className="text-[10px] text-rose-600 font-bold">{passwordError}</p>
                 )}
@@ -1755,7 +2010,7 @@ Classify each response into exactly one of the allowed categories. If any respon
               <div className="bg-slate-900 text-slate-200 rounded-xl p-3 px-4 border border-slate-800 flex items-center justify-between shadow-xs">
                 <span className="text-[11px] font-bold tracking-tight text-emerald-400 flex items-center gap-1.5">
                   <Unlock className="h-3.5 w-3.5 text-emerald-400 animate-pulse" />
-                  講者管理區已驗證 (00000)
+                  講者管理區已成功驗證解鎖
                 </span>
                 <button
                   type="button"

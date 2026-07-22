@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { 
-  Send, Sparkles, CheckCircle2, MessageSquare, AlertCircle, 
-  RefreshCw, Layers, Vote, BarChart, History, ArrowRight, Trash2
+  Send, CheckCircle2, AlertCircle, 
+  RefreshCw, Vote, BarChart, History, ArrowRight, Trash2, Lock, Unlock, Sparkles, MessageSquare
 } from "lucide-react";
 import { 
   collection, query, where, onSnapshot, doc, setDoc, serverTimestamp, deleteDoc
@@ -13,11 +13,16 @@ export default function ParticipantPanel() {
   const [activeQuestion, setActiveQuestion] = useState<Question | null>(null);
   const [answers, setAnswers] = useState<Answer[]>([]);
   const [inputText, setInputText] = useState("");
+  const [selectedOption, setSelectedOption] = useState<string>("");
   const [userId, setUserId] = useState("");
   const [loading, setLoading] = useState(false);
-  const [analyzing, setAnalyzing] = useState(false);
   const [successAnswer, setSuccessAnswer] = useState<{ text: string; category: string } | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
+  
+  // View mode: 'answering' (locked focus page) vs 'presentation' (unlocked results page)
+  const [viewMode, setViewMode] = useState<"answering" | "presentation">("answering");
+  const [hasSubmittedCurrent, setHasSubmittedCurrent] = useState(false);
+
   const [confirmDialog, setConfirmDialog] = useState<{
     title: string;
     message: string;
@@ -45,17 +50,22 @@ export default function ParticipantPanel() {
       if (!snapshot.empty) {
         const firstDoc = snapshot.docs[0];
         const data = firstDoc.data();
-        setActiveQuestion({
+        const loadedQuestion: Question = {
           id: firstDoc.id,
           title: data.title || "",
           createdAt: data.createdAt,
           isActive: data.isActive || false,
           categories: data.categories || [],
-          imageUrl: data.imageUrl || null
-        });
-        // Clear success modal when question shifts
+          imageUrl: data.imageUrl || null,
+          type: data.type || 'wordcloud',
+          options: data.options || []
+        };
+        
+        setActiveQuestion(loadedQuestion);
         setSuccessAnswer(null);
         setErrorText(null);
+        setInputText("");
+        setSelectedOption("");
       } else {
         setActiveQuestion(null);
       }
@@ -69,36 +79,65 @@ export default function ParticipantPanel() {
   useEffect(() => {
     if (!activeQuestion) {
       setAnswers([]);
+      setHasSubmittedCurrent(false);
       return;
     }
     const path = `questions/${activeQuestion.id}/answers`;
     const unsubscribe = onSnapshot(collection(db, path), (snapshot) => {
       const qAnswers: Answer[] = [];
+      let submittedByMe = false;
       snapshot.forEach(docSnap => {
         const data = docSnap.data();
+        const uId = data.userId || "";
+        if (uId === userId) {
+          submittedByMe = true;
+        }
         qAnswers.push({
           id: docSnap.id,
           text: data.text || "",
           category: data.category || "Other",
           createdAt: data.createdAt,
-          userId: data.userId || ""
+          userId: uId
         });
       });
       setAnswers(qAnswers);
+      setHasSubmittedCurrent(submittedByMe);
+
+      // Auto-unlock to presentation page if participant already submitted an answer for current active question
+      if (submittedByMe) {
+        setViewMode("presentation");
+      } else {
+        setViewMode("answering");
+      }
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, path);
     });
     return () => unsubscribe();
-  }, [activeQuestion]);
+  }, [activeQuestion, userId]);
 
-  // Handle Form Submission - Instant Write (一鍵待講師歸納模式)
+  // Handle Submission - Instant Write
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeQuestion) return;
     
-    const textToSubmit = inputText.trim();
-    if (!textToSubmit) {
-      setErrorText("請輸入一些回覆內容！");
+    let textToSubmit = "";
+    if (activeQuestion.type === "poll") {
+      textToSubmit = selectedOption.trim();
+      if (!textToSubmit) {
+        setErrorText("請點選一個投票選項！");
+        return;
+      }
+    } else {
+      textToSubmit = inputText.trim();
+      if (!textToSubmit) {
+        setErrorText("請輸入一些回覆內容！");
+        return;
+      }
+    }
+
+    // Prevent duplicate submission
+    if (hasSubmittedCurrent || mySubmissions.length > 0) {
+      setErrorText("您先前已完成本題作答/投票，每題僅限投出一次，無法重複送出。");
       return;
     }
 
@@ -106,23 +145,24 @@ export default function ParticipantPanel() {
     setErrorText(null);
 
     try {
-      // Perform direct, secure Firestore write with a category of "Pending"
       const answerId = "ans_" + Date.now() + "_" + Math.floor(Math.random() * 100);
       const answerDocRef = doc(db, `questions/${activeQuestion.id}/answers`, answerId);
       
       await setDoc(answerDocRef, {
         text: textToSubmit,
-        category: "Pending",
+        category: activeQuestion.type === "poll" ? "Vote" : "Pending",
         createdAt: serverTimestamp(),
         userId: userId
       });
 
-      // Clear input & show instant animation of successful submission
+      // Clear input & transition to presentation view
       setInputText("");
+      setSelectedOption("");
       setSuccessAnswer({
         text: textToSubmit,
-        category: "Pending"
+        category: activeQuestion.type === "poll" ? "Vote" : "Pending"
       });
+      setViewMode("presentation");
     } catch (error) {
       console.error("Submission failed:", error);
       setErrorText(error instanceof Error ? error.message : "連線發生錯誤，請確認網路連線。");
@@ -131,16 +171,17 @@ export default function ParticipantPanel() {
     }
   };
 
-  // Allow participant to withdraw/delete their own submitted idea
+  // Allow participant to withdraw/delete their own submitted response
   const handleDeleteMyAnswer = (answerId: string) => {
     if (!activeQuestion) return;
     requestConfirm(
-      "收回想法確認",
-      "確定要收回/刪除這筆想法嗎？此動作無法復原。",
+      "收回紀錄確認",
+      "確定要收回/刪除這筆回答嗎？收回後將解除鎖定，您可以重新作答。",
       async () => {
         setLoading(true);
         try {
           await deleteDoc(doc(db, `questions/${activeQuestion.id}/answers`, answerId));
+          setViewMode("answering");
         } catch (error) {
           console.error("Failed to delete submission:", error);
           setErrorText("刪除失敗，請再試一次。");
@@ -151,23 +192,35 @@ export default function ParticipantPanel() {
     );
   };
 
-  // Calculate my submitted answers size
   const mySubmissions = answers.filter(a => a.userId === userId);
 
-  // Statistics
+  // Statistics Calculation
   const catStats: { [key: string]: number } = {};
+  const pollStats: { [key: string]: number } = {};
+
   if (activeQuestion) {
-    activeQuestion.categories.forEach(c => {
-      catStats[c] = 0;
-    });
-    catStats["Other"] = 0;
-    answers.forEach(a => {
-      if (catStats[a.category] !== undefined) {
-        catStats[a.category]++;
-      } else {
-        catStats["Other"]++;
-      }
-    });
+    if (activeQuestion.type === 'poll') {
+      (activeQuestion.options || []).forEach(opt => {
+        pollStats[opt] = 0;
+      });
+      answers.forEach(a => {
+        if (pollStats[a.text] !== undefined) {
+          pollStats[a.text]++;
+        }
+      });
+    } else {
+      activeQuestion.categories.forEach(c => {
+        catStats[c] = 0;
+      });
+      catStats["Other"] = 0;
+      answers.forEach(a => {
+        if (catStats[a.category] !== undefined) {
+          catStats[a.category]++;
+        } else {
+          catStats["Other"]++;
+        }
+      });
+    }
   }
 
   const flatColors = ["#0e7490", "#b91c1c", "#0369a1", "#f59e0b", "#4d7c0f", "#6d28d9", "#be185d", "#57534e"];
@@ -213,30 +266,62 @@ export default function ParticipantPanel() {
         <div className="bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden">
           
           {/* Header Tag - Styled as Indigo Sleek Theme */}
-          <div className="bg-gradient-to-r from-indigo-950 via-indigo-900 to-indigo-850 px-5 py-4 text-white flex items-center justify-between border-b border-indigo-900/50">
+          <div className="bg-gradient-to-r from-indigo-950 via-indigo-900 to-indigo-850 px-5 py-3.5 text-white flex items-center justify-between border-b border-indigo-900/50">
             <span className="text-[10px] uppercase font-extrabold tracking-widest flex items-center gap-1.5 text-teal-300">
               <span className="h-2 w-2 rounded-full bg-teal-400 animate-pulse inline-block shadow-lg shadow-teal-400" />
               大會即時同步中 (Presenter Active)
             </span>
-            <span className="text-xs font-mono font-bold bg-white/10 px-3 py-1 rounded-full border border-white/20 select-none text-teal-200">
-              #CBME2026
-            </span>
+
+            {/* Mode Switcher Pills */}
+            <div className="flex items-center gap-1 bg-white/10 p-0.5 rounded-full border border-white/20">
+              <button
+                type="button"
+                onClick={() => setViewMode("answering")}
+                className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold transition cursor-pointer flex items-center gap-1 select-none ${
+                  viewMode === "answering" 
+                    ? "bg-teal-400 text-indigo-950 shadow-xs" 
+                    : "text-indigo-200 hover:text-white"
+                }`}
+              >
+                <Lock className="h-3 w-3" />
+                作答頁
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("presentation")}
+                className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold transition cursor-pointer flex items-center gap-1 select-none ${
+                  viewMode === "presentation" 
+                    ? "bg-teal-400 text-indigo-950 shadow-xs" 
+                    : "text-indigo-200 hover:text-white"
+                }`}
+              >
+                <Unlock className="h-3 w-3" />
+                大會動態
+              </button>
+            </div>
           </div>
 
           <div className="p-6 space-y-6">
             
-            {/* Title with live category action tag and image side-by-side on wider space */}
+            {/* Question Title & Mode Header */}
             <div className="space-y-3">
-              <span className="inline-block px-3 py-1 bg-indigo-50 text-indigo-700 text-[10px] font-black rounded-full uppercase tracking-wider">
-                Q1 LIVE INTERACTIVE QUESTION
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="inline-block px-3 py-1 bg-indigo-50 text-indigo-700 text-[10px] font-black rounded-full uppercase tracking-wider">
+                  {activeQuestion.type === 'poll' ? '📊 多元投票模式 (POLL)' : '☁️ 智慧字雲與思考 (WORD CLOUD)'}
+                </span>
+                
+                {hasSubmittedCurrent && (
+                  <span className="text-[10px] font-black text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                    <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                    已完成回答
+                  </span>
+                )}
+              </div>
               
               <div className="space-y-4">
-                <div>
-                  <h2 className="text-lg md:text-xl font-bold text-slate-800 leading-snug">
-                    {activeQuestion.title}
-                  </h2>
-                </div>
+                <h2 className="text-lg md:text-xl font-bold text-slate-800 leading-snug">
+                  {activeQuestion.title}
+                </h2>
 
                 {activeQuestion.imageUrl && (
                   <div className="flex justify-center">
@@ -253,167 +338,266 @@ export default function ParticipantPanel() {
               </div>
             </div>
 
-            {/* SUCCESS STATE BLOCK */}
-            {successAnswer && (
-              <div className="p-5 bg-teal-50/70 rounded-2xl border border-teal-200 space-y-3.5 fade-in">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="h-5 w-5 text-teal-600 shrink-0 animate-bounce" />
-                  <span className="font-extrabold text-teal-900 text-xs tracking-wide">大會醫療想法提交成功！</span>
-                </div>
-                <div className="text-xs text-slate-700 space-y-2 pl-7 font-sans">
-                  <p className="italic font-medium text-slate-800 bg-white/80 p-3 rounded-lg border border-teal-100">"{successAnswer.text}"</p>
-                  <p className="text-slate-500 leading-normal">
-                    ✨ 您的反思已成功投影至大螢幕！講師與主持人稍後將一鍵啟動 Gemini AI 智慧分類，讓想法同步對齊大會核心指標。
-                  </p>
-                </div>
-                <div className="pl-7 pt-1">
-                  <button 
-                    onClick={() => setSuccessAnswer(null)}
-                    className="text-xs text-indigo-600 hover:text-indigo-800 font-extrabold hover:underline flex items-center gap-1 cursor-pointer"
-                  >
-                    再提供另一個關鍵點子 <ArrowRight className="h-3 w-3" />
-                  </button>
-                </div>
-              </div>
-            )}
+            {/* 1. ANSWERING MODE (LOCKED VIEW BEFORE SUBMISSION) */}
+            {viewMode === "answering" && (
+              <div className="space-y-5 fade-in">
+                
+                {hasSubmittedCurrent ? (
+                  /* ALREADY SUBMITTED CARD - STRICT SINGLE SUBMISSION */
+                  <div className="p-6 bg-slate-50/90 rounded-2xl border border-slate-200 text-center space-y-4">
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 shadow-xs">
+                      <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <h3 className="font-extrabold text-slate-800 text-sm">
+                        您已完成本題的{activeQuestion.type === 'poll' ? '投票' : '回答'}！
+                      </h3>
+                      <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
+                        為維持大會數據公平性與即時真實性，每位學員每題僅限投一次票/作答，系統無法重複送出或更換選項。
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("presentation")}
+                      className="px-5 py-2.5 rounded-xl bg-indigo-900 hover:bg-indigo-800 text-teal-300 font-extrabold text-xs transition cursor-pointer shadow-sm inline-flex items-center gap-1.5 mt-2"
+                    >
+                      <Unlock className="h-4 w-4" />
+                      前往查看大會即時動態與統計看板
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    {/* Lock Status Banner */}
+                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200/80 text-amber-900 text-xs font-bold flex items-center gap-2">
+                      <Lock className="h-4 w-4 text-amber-600 shrink-0" />
+                      <span>
+                        專注答題頁：完成下方作答/投票並送出後，系統將即時投射至大螢幕並解鎖全場動態 (每人限投 1 次)！
+                      </span>
+                    </div>
 
-            {/* ERROR STATE */}
-            {errorText && (
-              <div className="p-3 bg-rose-50 rounded-xl border border-rose-200 text-rose-700 font-medium text-xs flex items-center gap-2">
-                <AlertCircle className="h-4.5 w-4.5 text-rose-600 shrink-0" />
-                <span>{errorText}</span>
-              </div>
-            )}
-
-            {/* INPUT FORM WITH ULTRA PROMINENT SUBMIT BUTTON */}
-            {!successAnswer && (
-              <form onSubmit={handleSubmit} className="space-y-5">
-                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-700 flex justify-between">
-                    <span>輸入您的反思、評論或臨床實務經驗：</span>
-                    <span className="text-[10px] text-slate-400 font-normal">限 500 字</span>
-                  </label>
-                  <textarea
-                    value={inputText}
-                    onChange={(e) => {
-                      setInputText(e.target.value.substring(0, 500));
-                      if (errorText) setErrorText(null);
-                    }}
-                    placeholder="請分享您的想法，例如：臨床回饋最困難的是缺乏客觀評估，建議導入多元客觀評量流程..."
-                    className="w-full text-xs rounded-xl border border-slate-200 p-4 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-slate-50/70 hover:bg-slate-50 transition min-h-[105px] text-slate-800 placeholder:text-slate-400 shadow-inner"
-                    rows={4}
-                    disabled={loading}
-                    required
-                  />
-                </div>
-
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-1">
-                  <span className="text-[10px] text-slate-400 font-medium max-w-[200px] leading-normal">
-                    * 本活動採完全匿名制，所有文字即時在前方投影呈現，僅統計歸納佔比。
-                  </span>
-                  
-                  <button
-                    type="submit"
-                    disabled={loading || !inputText.trim()}
-                    className="w-full sm:w-auto flex justify-center items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed text-white transition-all duration-200 py-3.5 px-8 text-sm font-black shadow-lg shadow-indigo-100 hover:shadow-indigo-200 hover:shadow-xl active:scale-95 transform shrink-0 cursor-pointer select-none"
-                  >
-                    {loading ? (
-                      <>
-                        <RefreshCw className="h-4 w-4 animate-spin" />
-                        提交並投影中...
-                      </>
-                    ) : (
-                      <>
-                        <Send className="h-4 w-4 text-teal-300" />
-                        🚀 立即送出 Idea (即時投影)
-                      </>
+                    {/* ERROR STATE */}
+                    {errorText && (
+                      <div className="p-3 bg-rose-50 rounded-xl border border-rose-200 text-rose-700 font-medium text-xs flex items-center gap-2">
+                        <AlertCircle className="h-4.5 w-4.5 text-rose-600 shrink-0" />
+                        <span>{errorText}</span>
+                      </div>
                     )}
-                  </button>
-                </div>
-              </form>
-            )}
 
-            {/* PERSISTENT SUBMISSION HISTORY FOR CURRENT USER */}
-            {mySubmissions.length > 0 && (
-              <div className="pt-5 border-t border-slate-100 space-y-3">
-                <h3 className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
-                  <History className="h-3.5 w-3.5 text-slate-500" />
-                  我提交的想法記錄 ({mySubmissions.length})
-                </h3>
+                    {/* POLL INPUT FORM */}
+                    {activeQuestion.type === "poll" ? (
+                      <form onSubmit={handleSubmit} className="space-y-5">
+                        <label className="text-xs font-black text-slate-700 block">
+                          請點選您的投票選項：
+                        </label>
 
-                <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                  {mySubmissions.map((sub) => {
-                    const isPending = sub.category === "Pending";
-                    const idx = activeQuestion.categories.indexOf(sub.category);
-                    const color = isPending ? "#64748b" : (idx >= 0 ? flatColors[idx % flatColors.length] : "#57534e");
+                        <div className="space-y-2.5">
+                          {(activeQuestion.options && activeQuestion.options.length > 0
+                            ? activeQuestion.options
+                            : ["同意", "普通", "不同意"]
+                          ).map((opt, idx) => {
+                            const isSelected = selectedOption === opt;
+                            return (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedOption(opt);
+                                  if (errorText) setErrorText(null);
+                                }}
+                                className={`w-full p-3.5 rounded-xl border text-left font-bold text-xs transition-all flex items-center justify-between cursor-pointer select-none ${
+                                  isSelected
+                                    ? "bg-emerald-50 border-emerald-500 text-emerald-900 ring-2 ring-emerald-300 shadow-xs"
+                                    : "bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700"
+                                }`}
+                              >
+                                <span className="flex items-center gap-2.5">
+                                  <span className={`w-5 h-5 rounded-full border flex items-center justify-center font-mono text-[10px] ${
+                                    isSelected ? "bg-emerald-600 border-emerald-600 text-white" : "border-slate-300 text-slate-400"
+                                  }`}>
+                                    {String.fromCharCode(65 + idx)}
+                                  </span>
+                                  <span>{opt}</span>
+                                </span>
 
-                    return (
-                      <div key={sub.id} className="p-2.5 bg-slate-50 hover:bg-slate-100 rounded-md border border-slate-150 flex items-start gap-3 text-[11px] justify-between">
-                        <div className="flex-1">
-                          <p className="text-slate-705 leading-relaxed italic">
-                            "{sub.text}"
-                          </p>
+                                {isSelected && <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />}
+                              </button>
+                            );
+                          })}
                         </div>
-                        <div className="shrink-0 flex items-center gap-1.5">
-                          <span 
-                            className="text-[8px] font-bold text-white uppercase px-1.5 py-0.5 rounded-xs" 
-                            style={{ backgroundColor: color }}
-                          >
-                            {sub.category === "Pending" ? "待一鍵分析" : (sub.category === "Other" ? "其他反思" : sub.category)}
+
+                        <button
+                          type="submit"
+                          disabled={loading || !selectedOption}
+                          className="w-full flex justify-center items-center gap-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed text-white transition-all duration-200 py-3.5 px-8 text-sm font-black shadow-lg shadow-emerald-100 hover:shadow-emerald-200 active:scale-95 transform cursor-pointer select-none"
+                        >
+                          {loading ? (
+                            <>
+                              <RefreshCw className="h-4 w-4 animate-spin" />
+                              記錄投票中...
+                            </>
+                          ) : (
+                            <>
+                              <Vote className="h-4 w-4 text-emerald-200" />
+                              🚀 投出寶貴一票 (限投 1 次)
+                            </>
+                          )}
+                        </button>
+                      </form>
+                    ) : (
+                      /* WORD CLOUD TEXTAREA FORM */
+                      <form onSubmit={handleSubmit} className="space-y-5">
+                        <div className="space-y-2">
+                          <label className="text-xs font-black text-slate-700 flex justify-between">
+                            <span>輸入您的反思、評論或臨床經驗：</span>
+                            <span className="text-[10px] text-slate-400 font-normal">限 500 字</span>
+                          </label>
+                          <textarea
+                            value={inputText}
+                            onChange={(e) => {
+                              setInputText(e.target.value.substring(0, 500));
+                              if (errorText) setErrorText(null);
+                            }}
+                            placeholder="請分享您的反思或關鍵觀點，例如：建議導入客觀多元臨床評估工具..."
+                            className="w-full text-xs rounded-xl border border-slate-200 p-4 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-slate-50/70 hover:bg-slate-50 transition min-h-[110px] text-slate-800 placeholder:text-slate-400 shadow-inner"
+                            rows={4}
+                            disabled={loading}
+                            required
+                          />
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-1">
+                          <span className="text-[10px] text-slate-400 font-medium max-w-[200px] leading-normal">
+                            * 採完全匿名，送出後文字將即時於投影呈現 (限回答 1 次)。
                           </span>
                           
                           <button
-                            type="button"
-                            onClick={() => handleDeleteMyAnswer(sub.id)}
-                            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
-                            title="收回/刪除此想法"
+                            type="submit"
+                            disabled={loading || !inputText.trim()}
+                            className="w-full sm:w-auto flex justify-center items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed text-white transition-all duration-200 py-3.5 px-8 text-sm font-black shadow-lg shadow-indigo-100 hover:shadow-indigo-200 active:scale-95 transform shrink-0 cursor-pointer select-none"
                           >
-                            <Trash2 className="h-3 w-3" />
+                            {loading ? (
+                              <>
+                                <RefreshCw className="h-4 w-4 animate-spin" />
+                                提交並投影中...
+                              </>
+                            ) : (
+                              <>
+                                <Send className="h-4 w-4 text-teal-300" />
+                                🚀 立即送出 Idea (限送 1 次)
+                              </>
+                            )}
                           </button>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      </form>
+                    )}
+                  </>
+                )}
               </div>
             )}
 
-            {/* LIVE ANSWER STATS TAB PREVIEW (FOR CELLPHONES) */}
-            {answers.length > 0 && (
-              <div className="pt-5 border-t border-slate-100 space-y-3">
-                <h3 className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
-                  <BarChart className="h-3.5 w-3.5 text-slate-500" />
-                  目前大會統計概況 (Workshop Distribution Preview)
-                </h3>
-
-                <div className="grid grid-cols-2 gap-2 text-[10px]">
-                  {Object.entries(catStats).map(([cat, val], idx) => {
-                    if (cat === "Other" && val === 0) return null;
-                    if (cat === "Pending") return null; // We display Pending separately or as text
-                    const percent = answers.length > 0 ? Math.round((val / answers.length) * 100) : 0;
-                    const color = flatColors[idx % flatColors.length];
-
-                    return (
-                      <div key={cat} className="p-2 bg-slate-50 rounded border border-slate-100 flex justify-between items-center">
-                        <span className="truncate max-w-[100px] text-slate-600 font-medium flex items-center gap-1">
-                          <span className="inline-block h-1.5 w-1.5 rounded-sm" style={{ backgroundColor: color }} />
-                          {cat}
-                        </span>
-                        <span className="font-bold text-slate-900 font-mono">
-                          {percent}%
-                        </span>
-                      </div>
-                    );
-                  })}
-                  {answers.some(a => a.category === "Pending") && (
-                    <div className="p-2 bg-slate-100/70 rounded border border-slate-200 flex justify-between items-center col-span-2 text-[9px] text-slate-500">
-                      <span>⏳ 待一鍵分析的學員草稿：</span>
-                      <span className="font-bold font-mono">
-                        {answers.filter(a => a.category === "Pending").length} 份意見
+            {/* 2. PRESENTATION MODE (UNLOCKED FULL WORKSHOP STATS & MY HISTORY) */}
+            {viewMode === "presentation" && (
+              <div className="space-y-6 fade-in">
+                
+                {/* Unlocked Banner */}
+                <div className="p-4 bg-teal-50/80 rounded-2xl border border-teal-200 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="h-5 w-5 text-teal-600 shrink-0" />
+                      <span className="font-extrabold text-teal-900 text-xs">🎉 已解鎖大會現場即時看板！</span>
+                    </div>
+                    {hasSubmittedCurrent ? (
+                      <span className="text-[10px] font-bold text-slate-500 bg-slate-200/80 px-2.5 py-1 rounded-full border border-slate-300/60">
+                        🔒 已作答 (每題限投 1 次)
                       </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setViewMode("answering")}
+                        className="text-xs text-indigo-700 hover:text-indigo-900 font-extrabold underline cursor-pointer"
+                      >
+                        ✏️ 進入作答
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-600 pl-7 leading-relaxed">
+                    您的想法已即時送出並對齊大會指標。下方為目前現場參與者的真實統計分佈！
+                  </p>
+                </div>
+
+                {/* MY SUBMISSION RECORD */}
+                {mySubmissions.length > 0 && (
+                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                        <History className="h-3.5 w-3.5 text-slate-500" />
+                        我的作答/投票紀錄 ({mySubmissions.length})
+                      </h3>
+                    </div>
+
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                      {mySubmissions.map((sub) => (
+                        <div key={sub.id} className="p-2.5 bg-white rounded-lg border border-slate-150 flex items-center justify-between gap-3 text-xs">
+                          <p className="text-slate-800 font-extrabold italic truncate">
+                            "{sub.text}"
+                          </p>
+                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded shrink-0">
+                            ✓ 已記錄
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* LIVE WORKSHOP STATS DISTRIBUTION */}
+                <div className="pt-2 border-t border-slate-100 space-y-3">
+                  <h3 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                    <BarChart className="h-3.5 w-3.5 text-indigo-600" />
+                    大會總體即時統計 (Live Distribution)
+                  </h3>
+
+                  {activeQuestion.type === 'poll' ? (
+                    <div className="space-y-2.5">
+                      {Object.entries(pollStats).map(([opt, count], idx) => {
+                        const percent = answers.length > 0 ? Math.round((count / answers.length) * 100) : 0;
+                        const color = flatColors[idx % flatColors.length];
+                        return (
+                          <div key={opt} className="p-2.5 bg-slate-50 rounded-xl border border-slate-150 space-y-1">
+                            <div className="flex justify-between text-xs font-bold text-slate-800">
+                              <span>{opt}</span>
+                              <span className="font-mono text-indigo-700">{count} 票 ({percent}%)</span>
+                            </div>
+                            <div className="h-2.5 w-full bg-slate-200 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full transition-all duration-500" style={{ width: `${percent}%`, backgroundColor: color }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2 text-[10px]">
+                      {Object.entries(catStats).map(([cat, val], idx) => {
+                        if (cat === "Other" && val === 0) return null;
+                        const percent = answers.length > 0 ? Math.round((val / answers.length) * 100) : 0;
+                        const color = flatColors[idx % flatColors.length];
+
+                        return (
+                          <div key={cat} className="p-2 bg-slate-50 rounded border border-slate-100 flex justify-between items-center">
+                            <span className="truncate max-w-[100px] text-slate-600 font-medium flex items-center gap-1">
+                              <span className="inline-block h-1.5 w-1.5 rounded-sm" style={{ backgroundColor: color }} />
+                              {cat}
+                            </span>
+                            <span className="font-bold text-slate-900 font-mono">
+                              {percent}%
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
+
               </div>
             )}
 

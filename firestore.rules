@@ -30,7 +30,11 @@ service cloud.firestore {
         && data.isActive is bool
         && data.categories is list
         && data.categories.size() <= 15
-        && (data.categories.size() == 0 || (data.categories.size() > 0 && data.categories[0] is string));
+        && (data.categories.size() == 0 || (data.categories.size() > 0 && data.categories[0] is string))
+        && (!("type" in data) || data.type is string)
+        && (!("options" in data) || data.options is list)
+        && (!("imageUrl" in data) || data.imageUrl == null || data.imageUrl is string)
+        && (!("updatedAt" in data) || data.updatedAt is timestamp);
     }
 
     // Validation Helper for Answer
@@ -43,22 +47,22 @@ service cloud.firestore {
 
     match /questions/{questionId} {
       allow get, list: if true;
-      allow create: if isSignedIn() && isValidId(questionId) && isValidQuestion(incoming()) && incoming().createdAt == request.time;
-      allow update: if isSignedIn() && isValidId(questionId) && isValidQuestion(incoming()) && incoming().createdAt == existing().createdAt;
-      allow delete: if isSignedIn() && isValidId(questionId);
+      allow create: if isValidId(questionId) && isValidQuestion(incoming()) && incoming().createdAt == request.time;
+      allow update: if isValidId(questionId) && isValidQuestion(incoming()) && incoming().createdAt == existing().createdAt;
+      allow delete: if isValidId(questionId);
       
       match /answers/{answerId} {
         allow get, list: if true;
         allow create: if isValidId(answerId) && isValidAnswer(incoming()) && incoming().createdAt == request.time;
         allow update: if isValidId(answerId) && isValidAnswer(incoming());
-        allow delete: if true; // Allows presenter to reset and clear values
+        allow delete: if isValidId(answerId);
       }
     }
 
     match /settings/{settingId} {
-      allow get: if true;
-      allow create, update: if isSignedIn() && isValidId(settingId);
-      allow delete: if isSignedIn() && isValidId(settingId);
+      allow get, list: if true;
+      allow create, update: if isValidId(settingId);
+      allow delete: if isValidId(settingId);
     }
   }
 }

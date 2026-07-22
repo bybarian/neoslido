@@ -5,6 +5,8 @@ export interface Question {
   isActive: boolean;
   categories: string[];
   imageUrl?: string | null;
+  type?: 'wordcloud' | 'poll'; // 'wordcloud' (text answer) or 'poll' (single choice vote)
+  options?: string[]; // Options for poll mode
 }
 
 export interface Answer {
