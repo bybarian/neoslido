@@ -10,6 +10,12 @@ export interface Question {
   options?: string[]; // Options for poll mode
 }
 
+export interface AnswerReactions {
+  like?: number;   // 👍 讚
+  heart?: number;  // ❤️ 愛心
+  smile?: number;  // 😄 笑臉
+}
+
 export interface Answer {
   id: string;
   text: string;
@@ -21,6 +27,13 @@ export interface Answer {
   userHospital?: string;
   likes?: number;
   likedBy?: string[];
+  reactions?: AnswerReactions;
+}
+
+export interface TypingUser {
+  id: string;
+  updatedAt: any;
+  userName?: string;
 }
 
 export interface CategorySummary {

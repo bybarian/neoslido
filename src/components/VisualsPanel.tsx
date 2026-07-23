@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { 
   Brain, Play, Sparkles, Maximize, Minimize, ArrowLeft, Activity, Phone, Monitor, Presentation, Users,
-  Lock, Unlock, KeyRound, Eye, EyeOff, ChevronLeft, ChevronRight, Heart, List, Cloud, ListFilter, SortDesc
+  Lock, Unlock, KeyRound, Eye, EyeOff, ChevronLeft, ChevronRight, Heart, List, Cloud, ListFilter, SortDesc,
+  ThumbsUp, Smile, Edit3
 } from "lucide-react";
 import { 
   collection, query, onSnapshot, doc, updateDoc, increment
@@ -23,6 +24,7 @@ export default function VisualsPanel({
   const [dbActiveId, setDbActiveId] = useState<string | null>(null);
   const [presentMode, setPresentMode] = useState<"list" | "wordcloud" | "chart">("list");
   const [sortMode, setSortMode] = useState<"likes" | "latest">("likes");
+  const [typingCount, setTypingCount] = useState<number>(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [joinUrl, setJoinUrl] = useState("");
   const [selectedTerm, setSelectedTerm] = useState<string | null>(null);
@@ -166,22 +168,56 @@ export default function VisualsPanel({
     }
   }, [activeQuestion?.id]);
 
-  // Handle Like/Heart button toggle
-  const handleLikeAnswer = async (questionId: string, answerId: string) => {
+  // Real-time listener for typing users count
+  useEffect(() => {
+    if (!activeQuestion?.id) {
+      setTypingCount(0);
+      return;
+    }
+    const q = collection(db, `questions/${activeQuestion.id}/typing`);
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const now = Date.now();
+      let count = 0;
+      snapshot.docs.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (data.updatedAt) {
+          const timeMs = data.updatedAt.seconds ? data.updatedAt.seconds * 1000 : now;
+          if (now - timeMs < 10000) {
+            count++;
+          }
+        } else {
+          count++;
+        }
+      });
+      setTypingCount(count);
+    }, (err) => {
+      console.error("Typing count error:", err);
+    });
+    return () => unsubscribe();
+  }, [activeQuestion?.id]);
+
+  // Handle Multi-reaction button toggle (like 👍, heart ❤️, smile 😄)
+  const handleReaction = async (questionId: string, answerId: string, type: 'like' | 'heart' | 'smile') => {
     try {
-      const key = `cbme_liked_${answerId}`;
-      const isLiked = localStorage.getItem(key) === "true";
+      const key = `cbme_reacted_${answerId}_${type}`;
+      const isReacted = localStorage.getItem(key) === "true";
       const answerRef = doc(db, `questions/${questionId}/answers`, answerId);
 
-      if (isLiked) {
+      if (isReacted) {
         localStorage.removeItem(key);
-        await updateDoc(answerRef, { likes: increment(-1) });
+        await updateDoc(answerRef, {
+          [`reactions.${type}`]: increment(-1),
+          likes: increment(-1)
+        });
       } else {
         localStorage.setItem(key, "true");
-        await updateDoc(answerRef, { likes: increment(1) });
+        await updateDoc(answerRef, {
+          [`reactions.${type}`]: increment(1),
+          likes: increment(1)
+        });
       }
     } catch (err) {
-      console.error("Failed to update like:", err);
+      console.error("Failed to update reaction:", err);
     }
   };
 
@@ -201,7 +237,8 @@ export default function VisualsPanel({
             userId: data.userId || "anonymous",
             userName: data.userName || "匿名",
             likes: data.likes || 0,
-            likedBy: data.likedBy || []
+            likedBy: data.likedBy || [],
+            reactions: data.reactions || {}
           });
         });
         // Sort answers chronology descending
@@ -716,6 +753,14 @@ export default function VisualsPanel({
                       </div>
                     )}
 
+                    {/* Typing count indicator banner */}
+                    {typingCount > 0 && (
+                      <span className="text-xs font-bold text-indigo-950 bg-teal-300 px-3 py-1 rounded-full border border-teal-400 animate-pulse flex items-center gap-1.5 shadow-2xs">
+                        <Edit3 className="h-3.5 w-3.5 text-indigo-950 animate-bounce" />
+                        <span>✍️ {typingCount} 人正在輸入回復中...</span>
+                      </span>
+                    )}
+
                     <span className="text-xs font-mono text-indigo-700 font-extrabold bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100/85">
                       現場合合共 {totalAnswersCount} 筆
                     </span>
@@ -779,19 +824,52 @@ export default function VisualsPanel({
                                       {answer.category === "Pending" ? "⏳ 待 AI 歸類" : (answer.category === "Other" ? "綜合領域" : answer.category)}
                                     </span>
 
-                                    <button
-                                      type="button"
-                                      onClick={() => handleLikeAnswer(focusedQuestion.id, answer.id)}
-                                      className={`px-3 py-1 rounded-full text-xs font-black transition flex items-center gap-1.5 cursor-pointer select-none border active:scale-95 ${
-                                        isLikedByMe
-                                          ? "bg-rose-500 text-white border-rose-600 shadow-xs"
-                                          : "bg-white text-rose-600 border-rose-200 hover:bg-rose-50 hover:border-rose-300"
-                                      }`}
-                                      title="點讚愛心表示認同此觀點"
-                                    >
-                                      <Heart className={`h-3.5 w-3.5 ${isLikedByMe ? "fill-white text-white" : "fill-rose-500 text-rose-500"}`} />
-                                      <span>{likesCount}</span>
-                                    </button>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      {/* 👍 讚 */}
+                                      <button
+                                        type="button"
+                                        onClick={() => handleReaction(focusedQuestion.id, answer.id, 'like')}
+                                        className={`px-2 py-0.5 rounded-full text-[11px] font-black transition flex items-center gap-1 cursor-pointer select-none border active:scale-95 ${
+                                          localStorage.getItem(`cbme_reacted_${answer.id}_like`) === "true"
+                                            ? "bg-amber-500 text-slate-950 border-amber-600 shadow-2xs"
+                                            : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                                        }`}
+                                        title="讚 (Thumbs Up)"
+                                      >
+                                        <ThumbsUp className={`h-3 w-3 ${localStorage.getItem(`cbme_reacted_${answer.id}_like`) === "true" ? "fill-slate-950" : "text-amber-500"}`} />
+                                        <span>{answer.reactions?.like || 0}</span>
+                                      </button>
+
+                                      {/* ❤️ 愛心 */}
+                                      <button
+                                        type="button"
+                                        onClick={() => handleReaction(focusedQuestion.id, answer.id, 'heart')}
+                                        className={`px-2 py-0.5 rounded-full text-[11px] font-black transition flex items-center gap-1 cursor-pointer select-none border active:scale-95 ${
+                                          localStorage.getItem(`cbme_reacted_${answer.id}_heart`) === "true"
+                                            ? "bg-rose-500 text-white border-rose-600 shadow-2xs"
+                                            : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                                        }`}
+                                        title="愛心 (Heart)"
+                                      >
+                                        <Heart className={`h-3 w-3 ${localStorage.getItem(`cbme_reacted_${answer.id}_heart`) === "true" ? "fill-white text-white" : "fill-rose-500 text-rose-500"}`} />
+                                        <span>{answer.reactions?.heart || (answer.likes && !answer.reactions?.heart && !answer.reactions?.like && !answer.reactions?.smile ? answer.likes : 0)}</span>
+                                      </button>
+
+                                      {/* 😄 笑臉 */}
+                                      <button
+                                        type="button"
+                                        onClick={() => handleReaction(focusedQuestion.id, answer.id, 'smile')}
+                                        className={`px-2 py-0.5 rounded-full text-[11px] font-black transition flex items-center gap-1 cursor-pointer select-none border active:scale-95 ${
+                                          localStorage.getItem(`cbme_reacted_${answer.id}_smile`) === "true"
+                                            ? "bg-teal-500 text-slate-950 border-teal-600 shadow-2xs"
+                                            : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                                        }`}
+                                        title="笑臉 (Smile)"
+                                      >
+                                        <Smile className={`h-3 w-3 ${localStorage.getItem(`cbme_reacted_${answer.id}_smile`) === "true" ? "fill-slate-950 text-slate-950" : "text-emerald-500"}`} />
+                                        <span>{answer.reactions?.smile || 0}</span>
+                                      </button>
+                                    </div>
                                   </div>
                                 </div>
                               </div>
@@ -1010,19 +1088,52 @@ export default function VisualsPanel({
                                   {answer.category === "Pending" ? "⏳ 待 AI 歸類" : (answer.category === "Other" ? "綜合領域" : answer.category)}
                                 </span>
 
-                                <button
-                                  type="button"
-                                  onClick={() => handleLikeAnswer(focusedQuestion.id, answer.id)}
-                                  className={`px-2 py-0.5 rounded-full text-[10px] font-black transition flex items-center gap-1 cursor-pointer select-none border active:scale-95 ${
-                                    isLikedByMe
-                                      ? "bg-rose-500 text-white border-rose-600 shadow-2xs"
-                                      : "bg-white text-rose-600 border-rose-200 hover:bg-rose-50"
-                                  }`}
-                                  title="按讚愛心"
-                                >
-                                  <Heart className={`h-3 w-3 ${isLikedByMe ? "fill-white text-white" : "fill-rose-500 text-rose-500"}`} />
-                                  <span>{likesCount}</span>
-                                </button>
+                                <div className="flex items-center gap-1 flex-wrap">
+                                  {/* 👍 讚 */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleReaction(focusedQuestion.id, answer.id, 'like')}
+                                    className={`px-1.5 py-0.5 rounded-full text-[10px] font-black transition flex items-center gap-0.5 cursor-pointer select-none border active:scale-95 ${
+                                      localStorage.getItem(`cbme_reacted_${answer.id}_like`) === "true"
+                                        ? "bg-amber-500 text-slate-950 border-amber-600 shadow-2xs"
+                                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                                    }`}
+                                    title="讚 (Thumbs Up)"
+                                  >
+                                    <ThumbsUp className={`h-2.5 w-2.5 ${localStorage.getItem(`cbme_reacted_${answer.id}_like`) === "true" ? "fill-slate-950" : "text-amber-500"}`} />
+                                    <span>{answer.reactions?.like || 0}</span>
+                                  </button>
+
+                                  {/* ❤️ 愛心 */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleReaction(focusedQuestion.id, answer.id, 'heart')}
+                                    className={`px-1.5 py-0.5 rounded-full text-[10px] font-black transition flex items-center gap-0.5 cursor-pointer select-none border active:scale-95 ${
+                                      localStorage.getItem(`cbme_reacted_${answer.id}_heart`) === "true"
+                                        ? "bg-rose-500 text-white border-rose-600 shadow-2xs"
+                                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                                    }`}
+                                    title="愛心 (Heart)"
+                                  >
+                                    <Heart className={`h-2.5 w-2.5 ${localStorage.getItem(`cbme_reacted_${answer.id}_heart`) === "true" ? "fill-white text-white" : "fill-rose-500 text-rose-500"}`} />
+                                    <span>{answer.reactions?.heart || (answer.likes && !answer.reactions?.heart && !answer.reactions?.like && !answer.reactions?.smile ? answer.likes : 0)}</span>
+                                  </button>
+
+                                  {/* 😄 笑臉 */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleReaction(focusedQuestion.id, answer.id, 'smile')}
+                                    className={`px-1.5 py-0.5 rounded-full text-[10px] font-black transition flex items-center gap-0.5 cursor-pointer select-none border active:scale-95 ${
+                                      localStorage.getItem(`cbme_reacted_${answer.id}_smile`) === "true"
+                                        ? "bg-teal-500 text-slate-950 border-teal-600 shadow-2xs"
+                                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                                    }`}
+                                    title="笑臉 (Smile)"
+                                  >
+                                    <Smile className={`h-2.5 w-2.5 ${localStorage.getItem(`cbme_reacted_${answer.id}_smile`) === "true" ? "fill-slate-950 text-slate-950" : "text-emerald-500"}`} />
+                                    <span>{answer.reactions?.smile || 0}</span>
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           </div>
